@@ -64,6 +64,7 @@ export function useOwnerHubMetrics(
     if (!selectedChannel) return [];
     return items.filter(
       (item) =>
+        item.status !== "Archived" &&
         item.platform === selectedChannel.platform &&
         item.account_name === selectedChannel.account_name &&
         isDateInFilter(item.publish_date, datePeriod, customStart, customEnd)

@@ -7,6 +7,7 @@ export { ContentFormatBadge } from "./components/content-format-badge";
 export { ContentStatusBadge } from "./components/content-status-badge";
 export { CreatePostModal } from "./components/create-post-modal";
 export { ContentDetailDrawer } from "./components/content-detail-drawer";
+export { ContentBoard } from "./components/content-board";
 export { useContentFilter } from "./hooks/use-content-filter";
 export * from "./services/content-service";
 

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { use, useState } from "react";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { AppSidebar, NavView } from "@/components/layout/app-sidebar";
 import { AppHeader } from "@/components/layout/app-header";
@@ -17,11 +17,31 @@ import { ChannelList } from "@/features/channels";
 import { TaxonomiesManager } from "@/features/taxonomies";
 import { GcpSetupGuideModal } from "@/features/integrations";
 import { TeamView, RolesView } from "@/features/team";
+import { CalendarView, CampaignsView, TasksView } from "@/features/planning";
+import { setUrlParam } from "@/lib/url-params";
 import { RefreshCw } from "lucide-react";
 
-function WorkspaceDashboard() {
-  const [activeView, setActiveView] = useState<NavView>("owner-hub");
+const VIEWS: NavView[] = [
+  "owner-hub",
+  "pipeline",
+  "calendar",
+  "campaigns",
+  "tasks",
+  "analytics",
+  "channels",
+  "taxonomies",
+  "team",
+  "roles",
+];
+
+function WorkspaceDashboard({ initialView }: { initialView: NavView }) {
+  const [activeView, setActiveViewState] = useState<NavView>(initialView);
   const { loading } = useWorkspace();
+
+  const setActiveView = (view: NavView) => {
+    setActiveViewState(view);
+    setUrlParam("view", view);
+  };
 
   return (
     <SidebarProvider defaultOpen={true}>
@@ -44,6 +64,9 @@ function WorkspaceDashboard() {
             ) : (
               <div key={activeView} className="animate-in fade-in-50 duration-200 ease-[var(--ease-out)]">
                 {activeView === "pipeline" && <ContentPipelineView />}
+                {activeView === "calendar" && <CalendarView />}
+                {activeView === "campaigns" && <CampaignsView />}
+                {activeView === "tasks" && <TasksView />}
                 {activeView === "owner-hub" && <OwnerHubView />}
                 {activeView === "analytics" && <AnalyticsView />}
                 {activeView === "channels" && <ChannelList />}
@@ -65,11 +88,18 @@ function WorkspaceDashboard() {
   );
 }
 
-export default function DashboardPage() {
+export default function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
+  const { view, item } = use(searchParams);
+  const initialView = VIEWS.find((v) => v === view) ?? "owner-hub";
+
   return (
     <AuthProvider>
-      <WorkspaceProvider>
-        <WorkspaceDashboard />
+      <WorkspaceProvider initialItemId={typeof item === "string" ? item : null}>
+        <WorkspaceDashboard initialView={initialView} />
       </WorkspaceProvider>
     </AuthProvider>
   );

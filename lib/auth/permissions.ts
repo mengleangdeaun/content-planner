@@ -238,11 +238,17 @@ export function statusPermission(status: string): Permission {
 export function permissionsForContentUpdate(fields: Record<string, unknown>): Permission[] {
   const required = new Set<Permission>();
   if (typeof fields.status === "string") required.add(statusPermission(fields.status));
-  const editsOtherFields = Object.keys(fields).some(
-    (key) => !["id", "status", "expected_updated_at"].includes(key)
-  );
+  // Publishing requires a live URL, so supplying it is part of publishing rather than an edit.
+  const statusOnly = ["id", "status", "expected_updated_at"];
+  if (fields.status === "Published") statusOnly.push("live_post_url");
+  const editsOtherFields = Object.keys(fields).some((key) => !statusOnly.includes(key));
   if (editsOtherFields || required.size === 0) required.add("content.edit");
   return [...required];
+}
+
+// Viewers read only. Anyone who works on content or reviews it can discuss it.
+export function canComment(member: Pick<Member, "permissions">): boolean {
+  return member.permissions.includes("content.edit") || member.permissions.includes("content.approve");
 }
 
 interface ChannelRef {
@@ -271,15 +277,22 @@ export function canAccessContent(member: Member, item: ContentRef, channels: Cha
 
 export function scopeWorkspace<
   C extends ChannelRef,
-  I extends ContentRef & { insight?: unknown },
-  W extends { data: I[]; channels: C[] },
+  I extends ContentRef & { id?: string; insight?: unknown },
+  T extends { content_id: string },
+  S extends { channel_id: string },
+  W extends { data: I[]; channels: C[]; tasks?: T[]; channelSnapshots?: S[] },
 >(workspace: W, member: Member): W {
   const showMetrics = hasPermission(member, "metrics.view");
+  const visible = workspace.data.filter((item) => canAccessContent(member, item, workspace.channels));
+  const visibleIds = new Set(visible.map((item) => item.id));
   return {
     ...workspace,
     channels: workspace.channels.filter((channel) => canAccessChannel(member, channel.id)),
-    data: workspace.data
-      .filter((item) => canAccessContent(member, item, workspace.channels))
-      .map((item) => (showMetrics ? item : { ...item, insight: undefined })),
+    data: visible.map((item) => (showMetrics ? item : { ...item, insight: undefined })),
+    tasks: workspace.tasks?.filter((task) => visibleIds.has(task.content_id)),
+    // Follower counts are performance data.
+    channelSnapshots: showMetrics
+      ? workspace.channelSnapshots?.filter((s) => canAccessChannel(member, s.channel_id))
+      : workspace.channelSnapshots && [],
   };
 }

@@ -2,254 +2,185 @@
 
 import React, { useState } from "react";
 import { ChannelAccount, Platform } from "@/lib/types";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { CONTROL_HEIGHT, Field, FieldRow, FormActions, FormError, FormSection } from "@/components/ui/form-layout";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { ResponsiveModal } from "@/components/ui/responsive-modal";
+import { ResponsiveSelect } from "@/components/ui/responsive-select";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from "@/components/ui/select";
-import { Share2 } from "lucide-react";
+import { useWorkspace } from "@/context/workspace-context";
+
+const PLATFORMS = ["Facebook", "Instagram", "LinkedIn", "YouTube", "TikTok"];
+const NONE = "none";
+const urlProps = { type: "url", inputMode: "url", autoCapitalize: "none", autoCorrect: "off" } as const;
 
 interface ChannelModalProps {
-  isOpen: boolean;
   onClose: () => void;
-  onSave: (channel: Omit<ChannelAccount, "id"> & { id?: string }) => Promise<void>;
   channelToEdit?: ChannelAccount | null;
 }
 
-export function ChannelModal({
-  isOpen,
-  onClose,
-  onSave,
-  channelToEdit,
-}: ChannelModalProps) {
-  // Parent mounts this only while open, so initial state is the form reset.
+// Parent mounts this only while open, so initial state is the form reset.
+export function ChannelModal({ onClose, channelToEdit }: ChannelModalProps) {
+  const { channels, people, onSaveChannel } = useWorkspace();
   const [platform, setPlatform] = useState<Platform>(channelToEdit?.platform ?? "Facebook");
   const [accountName, setAccountName] = useState(channelToEdit?.account_name ?? "");
   const [handle, setHandle] = useState(channelToEdit?.handle ?? "");
   const [pageUrl, setPageUrl] = useState(channelToEdit?.page_url ?? "");
   const [avatarUrl, setAvatarUrl] = useState(channelToEdit?.avatar_url ?? "");
   const [weeklyQuota, setWeeklyQuota] = useState(String(channelToEdit?.weekly_target_quota || 3));
-  const [status, setStatus] = useState<"Active" | "Paused" | "Archived">(channelToEdit?.status ?? "Active");
+  const [status, setStatus] = useState<ChannelAccount["status"]>(channelToEdit?.status ?? "Active");
+  const [brand, setBrand] = useState(channelToEdit?.brand ?? "");
+  const [owner, setOwner] = useState(channelToEdit?.owner_email || NONE);
   const [notes, setNotes] = useState(channelToEdit?.notes ?? "");
-
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const brands = [...new Set(channels.map((c) => c.brand).filter(Boolean))] as string[];
+  const platformOptions = [...new Set([...PLATFORMS, platform])].map((p) => ({ value: p, label: p === "Twitter" ? "Twitter / X" : p }));
+  // "Archived" only shows for older rows that used it as a status; archiving is its own action now.
+  const statusOptions = ["Active", "Paused", ...(status === "Archived" ? ["Archived"] : [])].map((s) => ({ value: s, label: s }));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-
-    if (!accountName.trim()) {
-      setError("Account or page name is required");
-      return;
-    }
+    if (!accountName.trim()) return setError("Account name is required.");
 
     try {
       setIsSubmitting(true);
-      await onSave({
+      await onSaveChannel({
         id: channelToEdit?.id,
         platform,
         account_name: accountName.trim(),
         handle: handle.trim() || undefined,
         page_url: pageUrl.trim() || undefined,
         avatar_url: avatarUrl.trim() || undefined,
-        weekly_target_quota: Number(weeklyQuota) || 3,
+        weekly_target_quota: Number(weeklyQuota),
         status,
+        brand: brand.trim() || undefined,
+        owner_email: owner === NONE ? undefined : owner,
         notes: notes.trim() || undefined,
       });
       onClose();
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Failed to save channel";
-      setError(message);
+      setError(err instanceof Error ? err.message : "Failed to save channel");
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-md max-h-[90vh] flex flex-col p-6 overflow-hidden">
-        <DialogHeader className="shrink-0 pb-1">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary/10 text-primary shrink-0">
-              <Share2 className="h-5 w-5" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <DialogTitle className="text-lg font-semibold tracking-tight truncate">
-                {channelToEdit ? "Edit Channel Account" : "Add Publishing Channel"}
-              </DialogTitle>
-              <DialogDescription className="text-sm text-muted-foreground mt-0.5">
-                Register brand profiles, social accounts, and target weekly output.
-              </DialogDescription>
-            </div>
-          </div>
-        </DialogHeader>
-
-        {error && (
-          <div className="rounded-md border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive font-medium shrink-0">
-            {error}
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="flex-1 min-w-0 flex flex-col overflow-hidden">
-          <div className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden pr-1.5 space-y-4 pt-1">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Platform *
-              </Label>
-              <Select
-                value={platform}
-                onValueChange={(val) => val && setPlatform(val as Platform)}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Facebook">Facebook</SelectItem>
-                  <SelectItem value="Instagram">Instagram</SelectItem>
-                  <SelectItem value="LinkedIn">LinkedIn</SelectItem>
-                  <SelectItem value="YouTube">YouTube</SelectItem>
-                  <SelectItem value="TikTok">TikTok</SelectItem>
-                  <SelectItem value="Twitter">Twitter / X</SelectItem>
-                  <SelectItem value="Pinterest">Pinterest</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="accountName" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Account Name *
-              </Label>
+    <ResponsiveModal
+      open
+      onClose={onClose}
+      title={channelToEdit ? "Edit channel" : "Add channel"}
+      description="A social account or page you publish to."
+      footer={
+        <div className="space-y-3">
+          {error && <FormError>{error}</FormError>}
+          <FormActions>
+            <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>Cancel</Button>
+            <Button type="submit" form="channel-form" disabled={isSubmitting}>
+              {isSubmitting ? "Saving..." : channelToEdit ? "Save changes" : "Add channel"}
+            </Button>
+          </FormActions>
+        </div>
+      }
+    >
+      <form id="channel-form" onSubmit={handleSubmit} className="space-y-6">
+        <FormSection title="Account">
+          <FieldRow>
+            <Field label="Platform" htmlFor="platform" required>
+              <ResponsiveSelect id="platform" value={platform} onValueChange={setPlatform} options={platformOptions} />
+            </Field>
+            <Field label="Account name" htmlFor="accountName" required>
               <Input
                 id="accountName"
+                className={CONTROL_HEIGHT}
                 placeholder="e.g. ABC, Main Page"
                 value={accountName}
                 onChange={(e) => setAccountName(e.target.value)}
                 required
               />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="handle" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Social Handle
-              </Label>
+            </Field>
+            <Field label="Handle" htmlFor="handle">
               <Input
                 id="handle"
+                className={CONTROL_HEIGHT}
                 placeholder="@brand_official"
+                autoCapitalize="none"
+                autoCorrect="off"
                 value={handle}
                 onChange={(e) => setHandle(e.target.value)}
               />
-            </div>
+            </Field>
+            <Field label="Brand" htmlFor="brand" hint="Groups channels">
+              <Input
+                id="brand"
+                list="brand-options"
+                className={CONTROL_HEIGHT}
+                placeholder="e.g. ABC Group"
+                value={brand}
+                onChange={(e) => setBrand(e.target.value)}
+              />
+              <datalist id="brand-options">
+                {brands.map((b) => (
+                  <option key={b} value={b} />
+                ))}
+              </datalist>
+            </Field>
+          </FieldRow>
+          <Field label="Page link" htmlFor="pageUrl">
+            <Input id="pageUrl" {...urlProps} className={CONTROL_HEIGHT} placeholder="https://facebook.com/yourpage" value={pageUrl} onChange={(e) => setPageUrl(e.target.value)} />
+          </Field>
+          <Field label="Avatar image link" htmlFor="avatarUrl">
+            <Input id="avatarUrl" {...urlProps} className={CONTROL_HEIGHT} placeholder="https://" value={avatarUrl} onChange={(e) => setAvatarUrl(e.target.value)} />
+          </Field>
+        </FormSection>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="weeklyQuota" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Weekly Target Quota
-              </Label>
+        <FormSection title="Planning">
+          <FieldRow columns={3}>
+            <Field label="Posts per week" htmlFor="weeklyQuota" required>
               <Input
                 id="weeklyQuota"
                 type="number"
                 min="1"
                 max="50"
+                inputMode="numeric"
+                className={CONTROL_HEIGHT}
                 value={weeklyQuota}
                 onChange={(e) => setWeeklyQuota(e.target.value)}
+                required
               />
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="pageUrl" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Profile / Page Web Link
-            </Label>
-            <Input
-              id="pageUrl"
-              type="url"
-              placeholder="https://facebook.com/yourpage"
-              value={pageUrl}
-              onChange={(e) => setPageUrl(e.target.value)}
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="avatarUrl" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Profile Avatar Image URL
-            </Label>
-            <Input
-              id="avatarUrl"
-              type="url"
-              placeholder="https://example.com/brand-avatar.png"
-              value={avatarUrl}
-              onChange={(e) => setAvatarUrl(e.target.value)}
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Account Status
-            </Label>
-            <Select
-              value={status}
-              onValueChange={(val) =>
-                val && setStatus(val as "Active" | "Paused" | "Archived")
-              }
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="Active">Active (Publishing)</SelectItem>
-                <SelectItem value="Paused">Paused (On Hold)</SelectItem>
-                <SelectItem value="Archived">Archived</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="notes" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Strategy / Audience Notes
-            </Label>
+            </Field>
+            <Field label="Status" htmlFor="channelStatus">
+              <ResponsiveSelect
+                id="channelStatus"
+                value={status}
+                onValueChange={(value) => setStatus(value as ChannelAccount["status"])}
+                options={statusOptions}
+              />
+            </Field>
+            <Field label="Owner" htmlFor="owner">
+              <ResponsiveSelect
+                id="owner"
+                value={owner}
+                onValueChange={setOwner}
+                options={[{ value: NONE, label: "No owner" }, ...people.map((p) => ({ value: p.email, label: p.name }))]}
+              />
+            </Field>
+          </FieldRow>
+          <Field label="Notes" htmlFor="notes">
             <Textarea
               id="notes"
               rows={2}
-              placeholder="Target demographics, brand voice nuances..."
+              placeholder="Audience, brand voice..."
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               className="resize-none"
             />
-          </div>
-        </div>
-
-        <DialogFooter className="shrink-0 pt-3 border-t mt-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={onClose}
-              disabled={isSubmitting}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? "Saving..." : channelToEdit ? "Update Channel" : "Save Channel"}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+          </Field>
+        </FormSection>
+      </form>
+    </ResponsiveModal>
   );
 }

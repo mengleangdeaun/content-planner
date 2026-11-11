@@ -17,7 +17,7 @@ export async function addContentTypeConfig(
 
 export async function updateContentTypeConfig(
   type: ContentTypeConfig
-): Promise<ContentTypeConfig> {
+): Promise<{ item: ContentTypeConfig; renamedPosts: number }> {
   const res = await fetch("/api/taxonomies", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -27,7 +27,7 @@ export async function updateContentTypeConfig(
   if (!res.ok) {
     throw new Error(json.error || "Failed to update content category");
   }
-  return json.item;
+  return { item: json.item, renamedPosts: json.renamedPosts ?? 0 };
 }
 
 export async function deleteContentTypeConfig(id: string): Promise<void> {

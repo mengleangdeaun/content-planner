@@ -1,359 +1,338 @@
 "use client";
 
 import React, { useState } from "react";
-import { ContentStatus } from "@/lib/types";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from "@/components/ui/select";
-import { DatePicker } from "@/components/ui/date-picker";
+import { ContentItem, ContentStatus } from "@/lib/types";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import {
-  PlusCircle,
-  Link as LinkIcon,
-  Video,
-  Image as ImageIcon,
-  CheckCircle2,
-} from "lucide-react";
-import { cn } from "@/lib/utils";
+  CONTROL_HEIGHT,
+  Field,
+  FieldRow,
+  FormActions,
+  FormError,
+  FormSection,
+  ToggleChip,
+} from "@/components/ui/form-layout";
+import { Input } from "@/components/ui/input";
+import { ResponsiveDatePicker } from "@/components/ui/responsive-date-picker";
+import { ResponsiveModal } from "@/components/ui/responsive-modal";
+import { ResponsiveSelect } from "@/components/ui/responsive-select";
+import { Textarea } from "@/components/ui/textarea";
+import { Video, Image as ImageIcon } from "lucide-react";
 import { format } from "date-fns";
-import { useWorkspace } from "@/context/workspace-context";
+import { PostFormState, useWorkspace } from "@/context/workspace-context";
+import { useAuth } from "@/context/auth-context";
+import { resolveChannelId, statusPermission } from "@/lib/auth/permissions";
+import { BOARD_STATUSES, LIVE_URL_REQUIRED, PRIORITIES, nextStatuses } from "@/lib/workflow";
+import { formatFlags } from "@/lib/settings-rules";
 
+const NONE = "none";
+const FORM_ID = "post-form";
+const urlProps = { type: "url", inputMode: "url", autoCapitalize: "none", autoCorrect: "off" } as const;
+
+// Mounted only while open, so each open starts from fresh values.
 export function CreatePostModal() {
-  const {
-    channels,
-    contentTypes,
-    isCreateModalOpen,
-    setIsCreateModalOpen,
-    onCreateContent,
-  } = useWorkspace();
+  const { postForm } = useWorkspace();
+  return postForm ? <PostForm form={postForm} /> : null;
+}
 
-  const [title, setTitle] = useState("");
-  const [publishDate, setPublishDate] = useState(() => format(new Date(), "yyyy-MM-dd"));
+function PostForm({ form }: { form: PostFormState }) {
+  const { channels, contentTypes, campaigns, people, closePostForm, onCreateContent, onUpdateContent } =
+    useWorkspace();
+  const { can } = useAuth();
 
-  // Selected Channel ID & Content Type state
-  const [selectedChannelId, setSelectedChannelId] = useState<string>("");
-  const [contentType, setContentType] = useState<string>("");
+  const editing = form.mode === "edit" ? form.item : null;
+  const source: Partial<ContentItem> = form.mode === "edit" ? form.item : (form.preset ?? {});
+  // A brand-new post (not an edit or duplicate) starts from its type's default format and brief.
+  const isFresh = form.mode === "create" && source.title === undefined;
+  const typeOf = (name?: string) => contentTypes.find((t) => t.name === name);
+  const initialType = source.content_type ?? contentTypes[0]?.name ?? "";
+  const initialFormat = isFresh ? formatFlags(typeOf(initialType)?.default_format) : null;
 
-  const effectiveChannelId = selectedChannelId && channels.some((c) => c.id === selectedChannelId)
-    ? selectedChannelId
-    : channels[0]?.id || "CHAN-101";
+  const [title, setTitle] = useState(source.title ?? "");
+  const [publishDate, setPublishDate] = useState(source.publish_date ?? format(new Date(), "yyyy-MM-dd"));
+  const [publishTime, setPublishTime] = useState(source.publish_time ?? "");
+  const [dueDate, setDueDate] = useState(source.due_date ?? "");
+  const [channelIds, setChannelIds] = useState<string[]>(() => {
+    const id = source.platform ? resolveChannelId(source as ContentItem, channels) : channels[0]?.id;
+    return id ? [id] : [];
+  });
+  const [contentType, setContentType] = useState(initialType);
+  const [campaignId, setCampaignId] = useState(source.campaign_id || NONE);
+  const [assignee, setAssignee] = useState(source.assignee_email || NONE);
+  const [reviewer, setReviewer] = useState(source.reviewer_email || NONE);
+  const [priority, setPriority] = useState(source.priority || "Normal");
+  const [isPoster, setIsPoster] = useState(source.is_poster ?? initialFormat?.poster ?? true);
+  const [isVideo, setIsVideo] = useState(source.is_video ?? initialFormat?.video ?? false);
+  const [status, setStatus] = useState<ContentStatus>(
+    (form.mode === "edit" && form.presetStatus) || source.status || "Draft"
+  );
+  const [workspaceUrl, setWorkspaceUrl] = useState(source.workspace_file_url ?? "");
+  const [liveUrl, setLiveUrl] = useState(source.live_post_url ?? "");
+  const [copyText, setCopyText] = useState(
+    source.copy_text ?? (isFresh ? (typeOf(initialType)?.brief_template ?? "") : "")
+  );
 
-  const effectiveContentType = contentType && contentTypes.some((ct) => ct.name === contentType)
-    ? contentType
-    : contentTypes[0]?.name || "Educational";
-
-  // Format Checkboxes
-  const [isPoster, setIsPoster] = useState(true);
-  const [isVideo, setIsVideo] = useState(false);
-
-  const [status, setStatus] = useState<ContentStatus>("Draft");
-  const [workspaceUrl, setWorkspaceUrl] = useState("");
-  const [copyText, setCopyText] = useState("");
+  // Switching type on a new post applies that type's defaults, without overwriting a caption already written.
+  const changeType = (name: string) => {
+    const previousBrief = typeOf(contentType)?.brief_template ?? "";
+    setContentType(name);
+    if (editing) return;
+    const next = typeOf(name);
+    const flags = formatFlags(next?.default_format);
+    if (flags) {
+      setIsPoster(flags.poster);
+      setIsVideo(flags.video);
+    }
+    if (!copyText.trim() || copyText === previousBrief) setCopyText(next?.brief_template ?? "");
+  };
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const statusOptions = (editing ? [editing.status, ...nextStatuses(editing.status)] : [...BOARD_STATUSES])
+    .filter((option) => option === editing?.status || can(statusPermission(option)))
+    .map((option) => ({ value: option, label: option }));
+
+  const peopleOptions = [
+    { value: NONE, label: "Unassigned" },
+    ...people.map((p) => ({ value: p.email, label: p.name })),
+  ];
+  const campaignOptions = [
+    { value: NONE, label: "No campaign" },
+    ...campaigns.map((c) => ({ value: c.id, label: c.name })),
+  ];
+  const channelOptions = channels.map((c) => ({ value: c.id, label: `${c.platform} — ${c.account_name}` }));
+  const typeOptions = contentTypes.map((ct) => ({ value: ct.name, label: ct.name }));
+  const priorityOptions = PRIORITIES.map((option) => ({ value: option, label: option }));
+
+  const showLiveUrl = status === "Scheduled" || status === "Published" || Boolean(source.live_post_url);
+
+  const toggleChannel = (id: string) =>
+    setChannelIds((prev) => (prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
-    if (!title.trim()) {
-      setError("Content title or internal headline is required");
-      return;
-    }
+    if (!title.trim()) return setError("Add a title.");
+    if (!isPoster && !isVideo) return setError("Choose at least one format: Poster, Video, or both.");
+    if (!publishDate) return setError("Choose a publish date.");
+    // A post whose channel was archived has no selection, and can still be edited.
+    if (!editing && channelIds.length === 0) return setError("Choose at least one channel.");
+    if (status === "Published" && !liveUrl.trim()) return setError(LIVE_URL_REQUIRED);
 
-    if (!isPoster && !isVideo) {
-      setError("Please check at least one format: Poster, Video, or both.");
-      return;
-    }
-
-    if (!publishDate) {
-      setError("Please select a target publication date.");
-      return;
-    }
-
-    const channel = channels.find((c) => c.id === effectiveChannelId) || channels[0];
+    const fields = {
+      title: title.trim(),
+      publish_date: publishDate,
+      publish_time: publishTime,
+      due_date: dueDate,
+      content_type: contentType,
+      campaign_id: campaignId === NONE ? "" : campaignId,
+      assignee_email: assignee === NONE ? "" : assignee,
+      reviewer_email: reviewer === NONE ? "" : reviewer,
+      priority: priority === "Normal" && !editing?.priority ? "" : priority, // Blank already means Normal.
+      status,
+      copy_text: copyText.trim(),
+      workspace_file_url: workspaceUrl.trim(),
+      live_post_url: liveUrl.trim(),
+      is_poster: isPoster,
+      is_video: isVideo,
+    };
 
     try {
       setIsSubmitting(true);
-      await onCreateContent({
-        title: title.trim(),
-        publish_date: publishDate,
-        created_at: new Date().toISOString(),
-        platform: channel?.platform || "Facebook",
-        account_name: channel?.account_name || "ABC",
-        channel_id: channel?.id,
-        content_type: effectiveContentType,
-        status,
-        copy_text: copyText.trim(),
-        workspace_file_url: workspaceUrl.trim(),
-        is_poster: isPoster,
-        is_video: isVideo,
-      });
-
-      // Reset Form
-      setTitle("");
-      setCopyText("");
-      setWorkspaceUrl("");
-      setStatus("Draft");
-      setIsPoster(true);
-      setIsVideo(false);
-      setIsCreateModalOpen(false);
+      if (editing) {
+        // Channel fields go only if the channel was actually changed.
+        const moved = channelIds[0] !== resolveChannelId(editing, channels);
+        const channel = moved ? channels.find((c) => c.id === channelIds[0]) : undefined;
+        const next: Partial<ContentItem> = {
+          ...fields,
+          channel_id: channel?.id,
+          platform: channel?.platform,
+          account_name: channel?.account_name,
+        };
+        // Send only what changed, so this cannot overwrite someone else's edit to other fields.
+        const current = editing as unknown as Record<string, unknown>;
+        const changed = Object.fromEntries(
+          Object.entries(next).filter(([key, value]) => value !== undefined && value !== (current[key] ?? ""))
+        );
+        if (Object.keys(changed).length > 0) {
+          await onUpdateContent({ ...changed, id: editing.id, expected_updated_at: editing.updated_at ?? "" });
+        }
+      } else {
+        await onCreateContent({ ...fields, channel_ids: channelIds });
+      }
+      closePostForm();
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Failed to create piece";
-      setError(message);
+      setError(err instanceof Error ? err.message : "Failed to save this post");
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const parsedDate = publishDate ? new Date(`${publishDate}T00:00:00`) : undefined;
-
   return (
-    <Dialog open={isCreateModalOpen} onOpenChange={setIsCreateModalOpen}>
-      <DialogContent className="sm:max-w-xl max-h-[90vh] flex flex-col p-6 overflow-hidden">
-        <DialogHeader className="shrink-0 pb-1">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary/10 text-primary shrink-0">
-              <PlusCircle className="h-5 w-5" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <DialogTitle className="text-lg font-semibold tracking-tight truncate">
-                Create Content Piece
-              </DialogTitle>
-              <DialogDescription className="text-sm text-muted-foreground mt-0.5">
-                Register a new asset in the schedule ledger and sync with cloud records.
-              </DialogDescription>
-            </div>
-          </div>
-        </DialogHeader>
-
-        {error && (
-          <div className="rounded-md border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive font-medium shrink-0">
-            {error}
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="flex-1 min-w-0 flex flex-col overflow-hidden">
-          <div className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden pr-2 space-y-4 pt-1">
-          {/* Title */}
-          <div className="space-y-1.5">
-            <Label htmlFor="title" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Working Title / Internal Headline *
-            </Label>
+    <ResponsiveModal
+      open
+      onClose={closePostForm}
+      size="lg"
+      title={editing ? "Edit post" : "Create post"}
+      description={editing ? editing.title : "Pick several channels to create one post for each."}
+      footer={
+        // In the fixed footer, so an error is visible wherever the form is scrolled to.
+        <div className="space-y-3">
+          {error && <FormError>{error}</FormError>}
+          <FormActions>
+            <Button type="button" variant="outline" onClick={closePostForm} disabled={isSubmitting}>
+              Cancel
+            </Button>
+            <Button type="submit" form={FORM_ID} disabled={isSubmitting}>
+              {isSubmitting ? "Saving..." : editing ? "Save changes" : "Create post"}
+            </Button>
+          </FormActions>
+        </div>
+      }
+    >
+      <form id={FORM_ID} onSubmit={handleSubmit} className="space-y-6">
+        <FormSection title="Basics">
+          <Field label="Title" htmlFor="title" required>
             <Input
               id="title"
-              placeholder="e.g. 5 Signs You Need Systems Strategy"
+              className={CONTROL_HEIGHT}
+              placeholder="e.g. 5 signs you need a systems strategy"
               value={title}
+              enterKeyHint="next"
+              autoCapitalize="sentences"
               onChange={(e) => setTitle(e.target.value)}
               required
             />
-          </div>
+          </Field>
 
-          {/* Target Channel Page & Content Type */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Target Channel & Page
-              </Label>
-              <Select
-                value={effectiveChannelId}
-                onValueChange={(val) => val && setSelectedChannelId(val)}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select Channel" />
-                </SelectTrigger>
-                <SelectContent>
-                  {channels.map((ch) => (
-                    <SelectItem key={ch.id} value={ch.id}>
-                      {ch.platform} — {ch.account_name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Strategic Content Type
-              </Label>
-              <Select
-                value={effectiveContentType}
-                onValueChange={(val) => val && setContentType(val)}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select Content Type" />
-                </SelectTrigger>
-                <SelectContent>
-                  {contentTypes.map((ct) => (
-                    <SelectItem key={ct.id} value={ct.name}>
-                      {ct.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {/* Media Format Specification: Poster, Video, or Both */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Media Format Required *
-              </Label>
-              <span className="text-xs text-muted-foreground">Select one or both formats</span>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 pt-1">
-              <button
-                type="button"
-                onClick={() => setIsPoster(!isPoster)}
-                className={cn(
-                  "flex items-center justify-between p-3 rounded-lg border text-left transition-[transform,border-color,background-color,box-shadow] duration-150 ease-[var(--ease-out)] active:scale-[0.98] cursor-pointer",
-                  isPoster
-                    ? "border-primary bg-primary/5 text-foreground ring-1 ring-primary shadow-xs"
-                    : "border-input bg-card text-muted-foreground hover:bg-muted/50"
-                )}
-              >
-                <div className="flex items-center gap-2.5">
-                  <div className={cn("p-1.5 rounded-md", isPoster ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground")}>
-                    <ImageIcon className="h-4 w-4" />
-                  </div>
-                  <div>
-                    <div className="text-xs font-semibold">Poster / Graphic</div>
-                    <div className="text-[11px] text-muted-foreground">Still images, carousels</div>
-                  </div>
-                </div>
-                {isPoster && <CheckCircle2 className="h-4 w-4 text-primary shrink-0" />}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setIsVideo(!isVideo)}
-                className={cn(
-                  "flex items-center justify-between p-3 rounded-lg border text-left transition-[transform,border-color,background-color,box-shadow] duration-150 ease-[var(--ease-out)] active:scale-[0.98] cursor-pointer",
-                  isVideo
-                    ? "border-primary bg-primary/5 text-foreground ring-1 ring-primary shadow-xs"
-                    : "border-input bg-card text-muted-foreground hover:bg-muted/50"
-                )}
-              >
-                <div className="flex items-center gap-2.5">
-                  <div className={cn("p-1.5 rounded-md", isVideo ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground")}>
-                    <Video className="h-4 w-4" />
-                  </div>
-                  <div>
-                    <div className="text-xs font-semibold">Short Video</div>
-                    <div className="text-[11px] text-muted-foreground">Reels, TikToks, Shorts</div>
-                  </div>
-                </div>
-                {isVideo && <CheckCircle2 className="h-4 w-4 text-primary shrink-0" />}
-              </button>
-            </div>
-          </div>
-
-          {/* Date Picker & Initial Status */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Target Publication Date *
-              </Label>
-              <DatePicker
-                date={parsedDate}
-                onSelectDate={(d) => setPublishDate(d ? format(d, "yyyy-MM-dd") : "")}
-                placeholder="Pick target date"
+          <Field label={editing ? "Channel" : "Channels"} htmlFor={editing ? "channel" : undefined} required={!editing}>
+            {editing ? (
+              <ResponsiveSelect
+                id="channel"
+                value={channelIds[0] ?? ""}
+                onValueChange={(value) => setChannelIds([value])}
+                options={channelOptions}
+                placeholder="Select a channel"
               />
-            </div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {channelOptions.map((c) => (
+                  <ToggleChip key={c.value} active={channelIds.includes(c.value)} onClick={() => toggleChannel(c.value)}>
+                    <span className="truncate">{c.label}</span>
+                  </ToggleChip>
+                ))}
+                {channelOptions.length === 0 && (
+                  <p className="text-sm text-muted-foreground">Add a channel account first.</p>
+                )}
+              </div>
+            )}
+          </Field>
 
-            <div className="space-y-1.5">
-              <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Initial Status
-              </Label>
-              <Select
-                value={status}
-                onValueChange={(val) => val && setStatus(val as ContentStatus)}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Draft">Draft</SelectItem>
-                  <SelectItem value="In Production">In Production</SelectItem>
-                  <SelectItem value="In Review">In Review</SelectItem>
-                  <SelectItem value="In Revise">In Revise</SelectItem>
-                  <SelectItem value="Approved">Approved</SelectItem>
-                  <SelectItem value="Scheduled">Scheduled</SelectItem>
-                  <SelectItem value="Published">Published</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
+          <FieldRow>
+            <Field label="Content type" htmlFor="contentType">
+              <ResponsiveSelect
+                id="contentType"
+                value={contentType}
+                onValueChange={changeType}
+                options={typeOptions}
+                placeholder="Select a type"
+              />
+            </Field>
+            <Field label="Format" required>
+              <div className="flex flex-wrap gap-2">
+                <ToggleChip active={isPoster} onClick={() => setIsPoster(!isPoster)}>
+                  <ImageIcon /> Poster
+                </ToggleChip>
+                <ToggleChip active={isVideo} onClick={() => setIsVideo(!isVideo)}>
+                  <Video /> Video
+                </ToggleChip>
+              </div>
+            </Field>
+          </FieldRow>
+        </FormSection>
 
-          {/* Workspace / Google Doc URL */}
-          <div className="space-y-1.5">
-            <Label htmlFor="workspaceUrl" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Connected Workspace Document (Google Docs / Figma URL)
-            </Label>
-            <div className="relative">
-              <LinkIcon className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <FormSection title="Schedule">
+          <FieldRow columns={3}>
+            <Field label="Publish date" htmlFor="publishDate" required>
+              <ResponsiveDatePicker id="publishDate" value={publishDate} onChange={setPublishDate} clearable={false} />
+            </Field>
+            <Field label="Publish time" htmlFor="publishTime">
               <Input
-                id="workspaceUrl"
-                type="url"
-                placeholder="https://docs.google.com/document/d/..."
-                value={workspaceUrl}
-                onChange={(e) => setWorkspaceUrl(e.target.value)}
-                className="pl-9 font-mono text-xs"
+                id="publishTime"
+                type="time"
+                className={CONTROL_HEIGHT}
+                value={publishTime}
+                onChange={(e) => setPublishTime(e.target.value)}
               />
-            </div>
-          </div>
+            </Field>
+            <Field label="Due date" htmlFor="dueDate">
+              <ResponsiveDatePicker id="dueDate" value={dueDate} onChange={setDueDate} placeholder="No due date" />
+            </Field>
+          </FieldRow>
+        </FormSection>
 
-          {/* Social Caption Draft */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="copyText" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Caption Copy / Post Script
-              </Label>
-              <span className="text-xs text-muted-foreground">Optional initial draft</span>
-            </div>
+        <FormSection title="Team & workflow">
+          <FieldRow>
+            <Field label="Assignee" htmlFor="assignee">
+              <ResponsiveSelect id="assignee" value={assignee} onValueChange={setAssignee} options={peopleOptions} />
+            </Field>
+            <Field label="Reviewer" htmlFor="reviewer">
+              <ResponsiveSelect id="reviewer" value={reviewer} onValueChange={setReviewer} options={peopleOptions} />
+            </Field>
+            <Field label="Status" htmlFor="status">
+              <ResponsiveSelect
+                id="status"
+                value={status}
+                onValueChange={(value) => setStatus(value as ContentStatus)}
+                options={statusOptions}
+              />
+            </Field>
+            <Field label="Priority" htmlFor="priority">
+              <ResponsiveSelect id="priority" value={priority} onValueChange={setPriority} options={priorityOptions} />
+            </Field>
+            <Field label="Campaign" htmlFor="campaign">
+              <ResponsiveSelect id="campaign" value={campaignId} onValueChange={setCampaignId} options={campaignOptions} />
+            </Field>
+          </FieldRow>
+        </FormSection>
+
+        <FormSection title="Content & links">
+          <Field label="Caption" htmlFor="copyText" hint="Optional">
             <Textarea
               id="copyText"
-              rows={3}
-              placeholder="Paste social post caption, hooks, hashtags..."
+              rows={4}
+              placeholder="Caption, hooks, hashtags..."
               value={copyText}
               onChange={(e) => setCopyText(e.target.value)}
               className="resize-none"
             />
-          </div>
-        </div>
-
-        <DialogFooter className="shrink-0 pt-3 border-t mt-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setIsCreateModalOpen(false)}
-              disabled={isSubmitting}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? "Saving Piece..." : "Register Content Piece"}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+          </Field>
+          <Field label="Document link" htmlFor="workspaceUrl" hint="Google Docs, Figma">
+            <Input
+              id="workspaceUrl"
+              {...urlProps}
+              className={CONTROL_HEIGHT}
+              placeholder="https://"
+              value={workspaceUrl}
+              onChange={(e) => setWorkspaceUrl(e.target.value)}
+            />
+          </Field>
+          {showLiveUrl && (
+            <Field label="Live post link" htmlFor="liveUrl" required={status === "Published"}>
+              <Input
+                id="liveUrl"
+                {...urlProps}
+                className={CONTROL_HEIGHT}
+                placeholder="https://"
+                value={liveUrl}
+                onChange={(e) => setLiveUrl(e.target.value)}
+                required={status === "Published"}
+              />
+            </Field>
+          )}
+        </FormSection>
+      </form>
+    </ResponsiveModal>
   );
 }

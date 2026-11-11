@@ -3,20 +3,17 @@
 import React from "react";
 import { ContentWithInsight, ContentStatus } from "@/lib/types";
 import { TableRow, TableCell } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
+import { TypeBadge } from "@/features/taxonomies/components/type-badge";
 import { Button, buttonVariants } from "@/components/ui/button";
-import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from "@/components/ui/select";
+import { format } from "date-fns";
 import { ContentFormatBadge } from "./content-format-badge";
-import { formatDisplayDate } from "@/lib/date-utils";
+import { ContentStatusSelect } from "./content-status-select";
+import { formatDisplayDate, formatShortDate } from "@/lib/date-utils";
 import { cn } from "@/lib/utils";
+import { isOverdue, taskProgress } from "@/lib/workflow";
 import { FileText, ExternalLink, BarChart2 } from "lucide-react";
 import { useAuth } from "@/context/auth-context";
+import { useWorkspace } from "@/context/workspace-context";
 
 interface ContentTableRowProps {
   item: ContentWithInsight;
@@ -32,6 +29,8 @@ export function ContentTableRow({
   onStatusChange,
 }: ContentTableRowProps) {
   const { can } = useAuth();
+  const { tasks } = useWorkspace();
+  const progress = taskProgress(tasks.filter((task) => task.content_id === item.id));
 
   return (
     <TableRow className="cursor-pointer group">
@@ -58,12 +57,7 @@ export function ContentTableRow({
       {/* Content Type & Format Badges */}
       <TableCell onClick={() => onOpenDetailDrawer(item)}>
         <div className="flex flex-col gap-1.5 items-start">
-          <Badge
-            variant="outline"
-            className="text-xs bg-muted/40 font-medium"
-          >
-            {item.content_type}
-          </Badge>
+          <TypeBadge name={item.content_type} />
           <ContentFormatBadge isPoster={item.is_poster} isVideo={item.is_video} />
         </div>
       </TableCell>
@@ -80,26 +74,23 @@ export function ContentTableRow({
 
       {/* Status (7-Stage Workflow) */}
       <TableCell onClick={(e) => e.stopPropagation()}>
-        <div className="w-32">
-          <Select
-            value={item.status}
-            onValueChange={(val) =>
-              val && onStatusChange(item, val as ContentStatus)
-            }
-          >
-            <SelectTrigger className="h-8 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="Draft">Draft</SelectItem>
-              <SelectItem value="In Production">In Production</SelectItem>
-              <SelectItem value="In Review">In Review</SelectItem>
-              <SelectItem value="In Revise">In Revise</SelectItem>
-              <SelectItem value="Approved">Approved</SelectItem>
-              <SelectItem value="Scheduled">Scheduled</SelectItem>
-              <SelectItem value="Published">Published</SelectItem>
-            </SelectContent>
-          </Select>
+        <div className="w-32 space-y-1">
+          <ContentStatusSelect item={item} onStatusChange={onStatusChange} className="h-8 text-xs" />
+          {item.due_date && (
+            <span
+              className={cn(
+                "block text-xs",
+                isOverdue(item, format(new Date(), "yyyy-MM-dd")) ? "font-medium text-destructive" : "text-muted-foreground"
+              )}
+            >
+              Due {formatShortDate(item.due_date)}
+            </span>
+          )}
+          {progress.total > 0 && (
+            <span className="block text-xs text-muted-foreground">
+              Tasks {progress.done}/{progress.total}
+            </span>
+          )}
         </div>
       </TableCell>
 

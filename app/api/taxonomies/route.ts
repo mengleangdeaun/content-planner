@@ -33,8 +33,8 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === "update-content-type") {
-      const updated = await updateContentType(data);
-      return NextResponse.json({ success: true, item: updated });
+      const { item, renamedPosts } = await updateContentType(data);
+      return NextResponse.json({ success: true, item, renamedPosts });
     }
 
     if (action === "delete-content-type") {

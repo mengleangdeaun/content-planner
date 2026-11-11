@@ -16,14 +16,30 @@ import {
   ContentItem,
   ChannelAccount,
   ContentTypeConfig,
+  Campaign,
+  ContentTask,
+  ChannelSnapshot,
+  Person,
 } from "@/lib/types";
 import {
+  ContentFetchResponse,
+  ContentUpdateInput,
+  NewContentInput,
   fetchContentData,
-  createContentItem,
+  createContentItems,
+  updateContentItem,
   updateItemStatus,
 } from "@/features/content/services/content-service";
+import {
+  NewTaskInput,
+  addTask,
+  saveCampaign,
+  updateTask,
+} from "@/features/planning/services/planning-service";
+import { setUrlParam } from "@/lib/url-params";
 import { saveContentInsight } from "@/features/analytics/services/insights-service";
 import {
+  addChannelSnapshot,
   saveChannelAccount,
   deleteChannelAccount,
 } from "@/features/channels/services/channels-service";
@@ -34,11 +50,21 @@ import {
 } from "@/features/taxonomies/services/taxonomies-service";
 import { triggerWorkspaceSync } from "@/features/integrations/services/sync-service";
 
+export type DrawerTab = "details" | "tasks" | "activity";
+
+export type PostFormState =
+  | { mode: "create"; preset?: Partial<ContentItem> }
+  | { mode: "edit"; item: ContentWithInsight; presetStatus?: ContentStatus };
+
 interface WorkspaceContextValue {
   // Data
   items: ContentWithInsight[];
   channels: ChannelAccount[];
   contentTypes: ContentTypeConfig[];
+  campaigns: Campaign[];
+  tasks: ContentTask[];
+  channelSnapshots: ChannelSnapshot[];
+  people: Person[];
   loading: boolean;
   isSyncing: boolean;
 
@@ -52,12 +78,18 @@ interface WorkspaceContextValue {
 
   // Content Operations
   onStatusChange: (item: ContentWithInsight, newStatus: ContentStatus) => Promise<void>;
-  onCreateContent: (item: Omit<ContentItem, "id">) => Promise<void>;
+  onCreateContent: (item: NewContentInput) => Promise<void>;
+  onUpdateContent: (fields: ContentUpdateInput) => Promise<void>;
+  onReschedule: (item: ContentWithInsight, date: string) => Promise<void>;
   onSaveInsight: (insight: ContentInsight) => Promise<void>;
+  onSaveCampaign: (campaign: Partial<Campaign>) => Promise<void>;
+  onAddTask: (fields: NewTaskInput) => Promise<void>;
+  onUpdateTask: (task: ContentTask, fields: Partial<ContentTask>) => Promise<void>;
 
   // Channels Operations
   onSaveChannel: (channel: Omit<ChannelAccount, "id"> & { id?: string }) => Promise<void>;
   onDeleteChannel: (id: string) => Promise<void>;
+  onAddSnapshot: (input: Pick<ChannelSnapshot, "channel_id" | "followers" | "captured_at">) => Promise<void>;
 
   // Taxonomies Operations
   onAddContentType: (type: Omit<ContentTypeConfig, "id">) => Promise<void>;
@@ -65,12 +97,14 @@ interface WorkspaceContextValue {
   onDeleteContentType: (id: string) => Promise<void>;
 
   // Dialog Controls
-  isCreateModalOpen: boolean;
-  setIsCreateModalOpen: (open: boolean) => void;
+  postForm: PostFormState | null;
+  openPostForm: (form: PostFormState) => void;
+  closePostForm: () => void;
   isGuideModalOpen: boolean;
   setIsGuideModalOpen: (open: boolean) => void;
   detailDrawerItem: ContentWithInsight | null;
-  openDetailDrawer: (item: ContentWithInsight) => void;
+  detailDrawerTab: DrawerTab;
+  openDetailDrawer: (item: ContentWithInsight, tab?: DrawerTab) => void;
   closeDetailDrawer: () => void;
   metricsModalItem: ContentWithInsight | null;
   openMetricsModal: (item: ContentWithInsight) => void;
@@ -79,20 +113,48 @@ interface WorkspaceContextValue {
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
 
-export function WorkspaceProvider({ children }: { children: ReactNode }) {
+export function WorkspaceProvider({
+  children,
+  initialItemId = null,
+}: {
+  children: ReactNode;
+  initialItemId?: string | null;
+}) {
   const [items, setItems] = useState<ContentWithInsight[]>([]);
   const [channels, setChannels] = useState<ChannelAccount[]>([]);
   const [contentTypes, setContentTypes] = useState<ContentTypeConfig[]>([]);
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [tasks, setTasks] = useState<ContentTask[]>([]);
+  const [channelSnapshots, setChannelSnapshots] = useState<ChannelSnapshot[]>([]);
+  const [people, setPeople] = useState<Person[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Dialog & Drawer States
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [postForm, setPostForm] = useState<PostFormState | null>(null);
   const [isGuideModalOpen, setIsGuideModalOpen] = useState(false);
-  const [detailDrawerItem, setDetailDrawerItem] = useState<ContentWithInsight | null>(null);
+  // Stored by id so the drawer always shows the latest copy, and a shared link works once data loads.
+  const [detailDrawerId, setDetailDrawerId] = useState<string | null>(initialItemId);
+  const detailDrawerItem = items.find((item) => item.id === detailDrawerId) ?? null;
+  const [detailDrawerTab, setDetailDrawerTab] = useState<DrawerTab>("details");
   const [metricsModalItem, setMetricsModalItem] = useState<ContentWithInsight | null>(null);
+
+  // Sync responses carry no people list, so only overwrite what came back.
+  const applyWorkspace = useCallback((result: Partial<ContentFetchResponse>) => {
+    if (result.data) setItems(result.data);
+    if (result.channels) setChannels(result.channels);
+    if (result.contentTypes) setContentTypes(result.contentTypes);
+    if (result.campaigns) setCampaigns(result.campaigns);
+    if (result.tasks) setTasks(result.tasks);
+    if (result.channelSnapshots) setChannelSnapshots(result.channelSnapshots);
+    if (result.people) setPeople(result.people);
+  }, []);
+
+  const applyItem = useCallback((updated: ContentItem) => {
+    setItems((prev) => prev.map((i) => (i.id === updated.id ? { ...i, ...updated } : i)));
+  }, []);
 
   const showToast = useCallback((msg: string) => {
     toast.success(msg);
@@ -105,10 +167,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     async (fresh = false) => {
       try {
         if (fresh) setIsSyncing(true);
-        const result = await fetchContentData(fresh);
-        if (result.data) setItems(result.data);
-        if (result.channels) setChannels(result.channels);
-        if (result.contentTypes) setContentTypes(result.contentTypes);
+        applyWorkspace(await fetchContentData(fresh));
       } catch (err: unknown) {
         console.error("Failed to load workspace data:", err);
         const message = err instanceof Error ? err.message : "Error loading data from server";
@@ -118,7 +177,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         setIsSyncing(false);
       }
     },
-    [showToast]
+    [applyWorkspace, showToast]
   );
 
   useEffect(() => {
@@ -127,9 +186,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       try {
         const result = await fetchContentData(false);
         if (active) {
-          if (result.data) setItems(result.data);
-          if (result.channels) setChannels(result.channels);
-          if (result.contentTypes) setContentTypes(result.contentTypes);
+          applyWorkspace(result);
           setLoading(false);
         }
       } catch (err: unknown) {
@@ -144,15 +201,27 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     return () => {
       active = false;
     };
-  }, [showToast]);
+  }, [applyWorkspace, showToast]);
+
+  // Picks up teammates' changes without a Sync click. The server answers from its 30-second
+  // cache, so this does not add Google Sheets reads. Quiet on failure: it retries next time.
+  useEffect(() => {
+    const refreshQuietly = () => {
+      if (document.visibilityState !== "visible") return;
+      fetchContentData(false).then(applyWorkspace).catch(() => {});
+    };
+    const timer = setInterval(refreshQuietly, 60 * 1000);
+    document.addEventListener("visibilitychange", refreshQuietly);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", refreshQuietly);
+    };
+  }, [applyWorkspace]);
 
   const syncNow = useCallback(async () => {
     try {
       setIsSyncing(true);
-      const result = await triggerWorkspaceSync();
-      if (result.data) setItems(result.data);
-      if (result.channels) setChannels(result.channels);
-      if (result.contentTypes) setContentTypes(result.contentTypes);
+      applyWorkspace(await triggerWorkspaceSync());
       showToast("Synced successfully with Google Sheet");
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Sync failed. Check credentials.";
@@ -160,20 +229,24 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsSyncing(false);
     }
-  }, [showToast]);
+  }, [applyWorkspace, showToast]);
 
   const onStatusChange = useCallback(
     async (item: ContentWithInsight, newStatus: ContentStatus) => {
+      // Publishing needs a live URL, so ask for it instead of letting the server refuse.
+      if (newStatus === "Published" && !item.live_post_url) {
+        setDetailDrawerId(null); // Two modals at once fight over focus.
+        setUrlParam("item", null);
+        setPostForm({ mode: "edit", item, presetStatus: "Published" });
+        return;
+      }
+
       setItems((prev) =>
         prev.map((i) => (i.id === item.id ? { ...i, status: newStatus } : i))
       );
 
-      setDetailDrawerItem((prev) =>
-        prev && prev.id === item.id ? { ...prev, status: newStatus } : prev
-      );
-
       try {
-        await updateItemStatus(item, newStatus);
+        applyItem(await updateItemStatus(item, newStatus));
         showToast(`Status updated to "${newStatus}" for ${item.id}`);
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : "Failed to update status";
@@ -181,20 +254,83 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         refreshData();
       }
     },
-    [refreshData, showToast]
+    [applyItem, refreshData, showToast]
   );
 
   const onCreateContent = useCallback(
-    async (newItem: Omit<ContentItem, "id">) => {
-      const created = await createContentItem(newItem);
-      const itemWithInsight: ContentWithInsight = {
-        ...created,
-        insight: undefined,
-      };
-      setItems((prev) => [itemWithInsight, ...prev]);
-      showToast(`Created "${created.title}"`);
+    async (newItem: NewContentInput) => {
+      const created = await createContentItems(newItem);
+      setItems((prev) => [...created, ...prev]);
+      showToast(
+        created.length > 1
+          ? `Created "${created[0].title}" for ${created.length} channels`
+          : `Created "${created[0].title}"`
+      );
     },
     [showToast]
+  );
+
+  const onUpdateContent = useCallback(
+    async (fields: ContentUpdateInput) => {
+      const updated = await updateContentItem(fields);
+      applyItem(updated);
+      showToast(`Saved "${updated.title}"`);
+    },
+    [applyItem, showToast]
+  );
+
+  const onReschedule = useCallback(
+    async (item: ContentWithInsight, date: string) => {
+      if (item.publish_date === date) return;
+      setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, publish_date: date } : i)));
+      try {
+        applyItem(
+          await updateContentItem({
+            id: item.id,
+            publish_date: date,
+            expected_updated_at: item.updated_at ?? "",
+          })
+        );
+        showToast(`Moved "${item.title}" to ${date}`);
+      } catch (err: unknown) {
+        showToast(err instanceof Error ? err.message : "Failed to move the post");
+        refreshData();
+      }
+    },
+    [applyItem, refreshData, showToast]
+  );
+
+  const onSaveCampaign = useCallback(
+    async (campaign: Partial<Campaign>) => {
+      const saved = await saveCampaign(campaign);
+      setCampaigns((prev) => {
+        const others = prev.filter((c) => c.id !== saved.id);
+        return saved.status === "Archived" ? others : [...others, saved];
+      });
+      showToast(`Campaign "${saved.name}" saved`);
+    },
+    [showToast]
+  );
+
+  const onAddTask = useCallback(async (fields: NewTaskInput) => {
+    const created = await addTask(fields);
+    setTasks((prev) => [...prev, created]);
+  }, []);
+
+  const onUpdateTask = useCallback(
+    async (task: ContentTask, fields: Partial<ContentTask>) => {
+      const merge = (list: ContentTask[], next: ContentTask) =>
+        list.flatMap((t) => (t.id !== next.id ? [t] : next.status === "archived" ? [] : [next]));
+      setTasks((prev) => merge(prev, { ...task, ...fields }));
+      try {
+        const saved = await updateTask(task.id, fields);
+        setTasks((prev) => merge(prev, saved));
+      } catch (err: unknown) {
+        showToast(err instanceof Error ? err.message : "Failed to update task");
+        refreshData();
+      }
+    },
+    [refreshData, showToast]
   );
 
   const onSaveInsight = useCallback(
@@ -202,9 +338,6 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       await saveContentInsight(insight);
       setItems((prev) =>
         prev.map((i) => (i.id === insight.id ? { ...i, insight } : i))
-      );
-      setDetailDrawerItem((prev) =>
-        prev && prev.id === insight.id ? { ...prev, insight } : prev
       );
       showToast(`Metrics logged for ${insight.id}`);
     },
@@ -232,7 +365,16 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     async (id: string) => {
       await deleteChannelAccount(id);
       setChannels((prev) => prev.filter((c) => c.id !== id));
-      showToast("Channel removed");
+      showToast("Channel archived");
+    },
+    [showToast]
+  );
+
+  const onAddSnapshot = useCallback(
+    async (input: Pick<ChannelSnapshot, "channel_id" | "followers" | "captured_at">) => {
+      const saved = await addChannelSnapshot(input);
+      setChannelSnapshots((prev) => [...prev, { ...saved, followers: Number(saved.followers) }]);
+      showToast("Followers saved");
     },
     [showToast]
   );
@@ -248,31 +390,46 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const onUpdateContentType = useCallback(
     async (type: ContentTypeConfig) => {
-      const updated = await updateContentTypeConfig(type);
+      const previousName = contentTypes.find((t) => t.id === type.id)?.name;
+      const { item: updated, renamedPosts } = await updateContentTypeConfig(type);
       setContentTypes((prev) =>
         prev.map((t) => (t.id === updated.id ? updated : t))
       );
-      showToast(`Category "${updated.name}" updated`);
+      if (renamedPosts > 0 && previousName) {
+        setItems((prev) =>
+          prev.map((i) => (i.content_type === previousName ? { ...i, content_type: updated.name } : i))
+        );
+      }
+      showToast(
+        renamedPosts > 0
+          ? `"${updated.name}" saved, and ${renamedPosts} post${renamedPosts === 1 ? "" : "s"} updated`
+          : `"${updated.name}" saved`
+      );
     },
-    [showToast]
+    [contentTypes, showToast]
   );
 
   const onDeleteContentType = useCallback(
     async (id: string) => {
       await deleteContentTypeConfig(id);
       setContentTypes((prev) => prev.filter((c) => c.id !== id));
-      showToast("Category removed");
+      showToast("Content type archived");
     },
     [showToast]
   );
 
-  const openDetailDrawer = useCallback((item: ContentWithInsight) => {
-    setDetailDrawerItem(item);
+  const openDetailDrawer = useCallback((item: ContentWithInsight, tab: DrawerTab = "details") => {
+    setDetailDrawerTab(tab);
+    setDetailDrawerId(item.id);
+    setUrlParam("item", item.id);
   }, []);
 
   const closeDetailDrawer = useCallback(() => {
-    setDetailDrawerItem(null);
+    setDetailDrawerId(null);
+    setUrlParam("item", null);
   }, []);
+
+  const closePostForm = useCallback(() => setPostForm(null), []);
 
   const openMetricsModal = useCallback((item: ContentWithInsight) => {
     setMetricsModalItem(item);
@@ -286,6 +443,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     items,
     channels,
     contentTypes,
+    campaigns,
+    tasks,
+    channelSnapshots,
+    people,
     loading,
     isSyncing,
     toastMessage,
@@ -294,17 +455,25 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     syncNow,
     onStatusChange,
     onCreateContent,
+    onUpdateContent,
+    onReschedule,
     onSaveInsight,
+    onSaveCampaign,
+    onAddTask,
+    onUpdateTask,
     onSaveChannel,
     onDeleteChannel,
+    onAddSnapshot,
     onAddContentType,
     onUpdateContentType,
     onDeleteContentType,
-    isCreateModalOpen,
-    setIsCreateModalOpen,
+    postForm,
+    openPostForm: setPostForm,
+    closePostForm,
     isGuideModalOpen,
     setIsGuideModalOpen,
     detailDrawerItem,
+    detailDrawerTab,
     openDetailDrawer,
     closeDetailDrawer,
     metricsModalItem,

@@ -183,14 +183,59 @@ export function appendRows(tab: TabName, records: Fields[]): Promise<void> {
 }
 
 /**
+ * Sets the same fields on every row that matches, in one read and one write. Returns how many rows changed.
+ * Leaves updated_at alone: forms send only the fields people changed, so this cannot be overwritten by stale edits.
+ */
+export function updateWhere(tab: TabName, match: (row: Row) => boolean, fields: Fields): Promise<number> {
+  return state.enqueue(async () => {
+    const title = await requireTitle(tab);
+    const sheets = getSheetsClient();
+    const spreadsheetId = getSpreadsheetId();
+
+    const res = await withRetry(() =>
+      sheets.spreadsheets.values.get({ spreadsheetId, range: quoteTitle(title) })
+    );
+    const values = res.data.values ?? [];
+    const headers = normalizeHeaders(values[0]);
+    assertColumns(tab, headers, fields);
+    const targets = values.flatMap((row, i) => (i > 0 && match(rowToRecord(headers, row)) ? [i] : []));
+    if (targets.length === 0) return 0;
+
+    const entries = Object.entries(fields).filter(([, value]) => value !== undefined);
+    await withRetry(() =>
+      sheets.spreadsheets.values.batchUpdate({
+        spreadsheetId,
+        requestBody: {
+          valueInputOption: "RAW",
+          data: targets.flatMap((rowIndex) =>
+            entries.map(([key, value]) => ({
+              range: `${quoteTitle(title)}!${columnLetter(headers.indexOf(key))}${rowIndex + 1}`,
+              values: [[value]],
+            }))
+          ),
+        },
+      })
+    );
+
+    for (const rowIndex of targets) {
+      for (const [key, value] of entries) values[rowIndex][headers.indexOf(key)] = value;
+    }
+    if (state.cache) state.cache.tabs[tab] = toTabData(values);
+    return targets.length;
+  });
+}
+
+/**
  * Writes only the cells that changed. When expectedUpdatedAt is given and the row
  * has moved on, throws a 409 instead of overwriting someone else's edit.
+ * `validate` sees the row as it is at write time, and can throw to reject the change.
  */
 export function patchRow(
   tab: TabName,
   id: string,
   fields: Fields,
-  expectedUpdatedAt?: string
+  expectedUpdatedAt?: string,
+  validate?: (current: Row) => void
 ): Promise<Row> {
   return state.enqueue(async () => {
     const title = await requireTitle(tab);
@@ -214,6 +259,7 @@ export function patchRow(
     if (tracksUpdates && expectedUpdatedAt !== undefined && current.updated_at !== expectedUpdatedAt) {
       throw new SheetError("Someone else changed this item. Refresh and try again.", 409);
     }
+    validate?.(current);
 
     assertColumns(tab, headers, fields);
     const changed = Object.entries(fields).filter(

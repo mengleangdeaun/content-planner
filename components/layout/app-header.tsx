@@ -25,9 +25,12 @@ interface AppHeaderProps {
 const VIEW_TITLES: Record<NavView, { section: string; title: string }> = {
   "owner-hub": { section: "Overview", title: "Dashboard" },
   pipeline: { section: "Operations", title: "Content Management" },
+  calendar: { section: "Operations", title: "Calendar" },
+  campaigns: { section: "Operations", title: "Campaigns" },
+  tasks: { section: "Operations", title: "Tasks" },
   analytics: { section: "Analytics", title: "Performance Analytics" },
   channels: { section: "Settings", title: "Channel Accounts" },
-  taxonomies: { section: "Settings", title: "Content Taxonomies" },
+  taxonomies: { section: "Settings", title: "Content Types" },
   team: { section: "Administration", title: "Team" },
   roles: { section: "Administration", title: "Roles & Permissions" },
 };

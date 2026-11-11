@@ -4,13 +4,28 @@ import {
   ChannelAccount,
   ContentTypeConfig,
   ContentStatus,
+  Campaign,
+  ContentTask,
+  ChannelSnapshot,
+  Person,
 } from "@/lib/types";
 
 export interface ContentFetchResponse {
   data: ContentWithInsight[];
   channels: ChannelAccount[];
   contentTypes: ContentTypeConfig[];
+  campaigns: Campaign[];
+  tasks: ContentTask[];
+  channelSnapshots: ChannelSnapshot[];
+  people: Person[];
 }
+
+export type NewContentInput = Omit<ContentItem, "id" | "platform" | "account_name"> & {
+  channel_ids: string[];
+};
+
+export type ContentUpdateInput = Partial<ContentItem> &
+  Pick<ContentItem, "id"> & { expected_updated_at?: string };
 
 export async function fetchContentData(fresh = false): Promise<ContentFetchResponse> {
   const res = await fetch(`/api/content${fresh ? "?fresh=true" : ""}`);
@@ -21,9 +36,9 @@ export async function fetchContentData(fresh = false): Promise<ContentFetchRespo
   return res.json();
 }
 
-export async function createContentItem(
-  newItem: Omit<ContentItem, "id">
-): Promise<ContentItem> {
+export async function createContentItems(
+  newItem: NewContentInput
+): Promise<ContentItem[]> {
   const res = await fetch("/api/content", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -33,11 +48,11 @@ export async function createContentItem(
   if (!res.ok) {
     throw new Error(json.error || "Failed to create content piece");
   }
-  return json.item;
+  return json.items;
 }
 
 export async function updateContentItem(
-  item: Partial<ContentItem> & Pick<ContentItem, "id">
+  item: ContentUpdateInput
 ): Promise<ContentItem> {
   const res = await fetch("/api/content", {
     method: "PUT",

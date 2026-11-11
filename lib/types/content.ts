@@ -27,8 +27,19 @@ export interface ContentItem {
   workspace_file_url: string;
   status: ContentStatus;
 
+  // Planning
+  group_id?: string; // Shared by posts created together for several channels.
+  campaign_id?: string;
+  assignee_email?: string;
+  reviewer_email?: string;
+  due_date?: string; // "YYYY-MM-DD"
+  publish_time?: string; // "HH:MM"
+  priority?: string;
+  live_post_url?: string;
+
   // Metadata timestamps
   created_at?: string; // ISO 8601 creation timestamp
+  created_by?: string;
   updated_at?: string;
 }
 

@@ -1,4 +1,17 @@
-import { ChannelAccount } from "@/lib/types";
+import { ChannelAccount, ChannelSnapshot } from "@/lib/types";
+
+export async function addChannelSnapshot(
+  input: Pick<ChannelSnapshot, "channel_id" | "followers" | "captured_at">
+): Promise<ChannelSnapshot> {
+  const res = await fetch("/api/channels/snapshots", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error || "Failed to save followers");
+  return json.snapshot;
+}
 
 export async function fetchChannels(): Promise<ChannelAccount[]> {
   const res = await fetch("/api/channels");

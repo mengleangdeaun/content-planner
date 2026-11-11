@@ -4,30 +4,55 @@ import React from "react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from "@/components/ui/select";
-import { DatePicker } from "@/components/ui/date-picker";
+import { CONTROL_HEIGHT } from "@/components/ui/form-layout";
+import { ResponsiveDatePicker } from "@/components/ui/responsive-date-picker";
+import { ResponsiveSelect } from "@/components/ui/responsive-select";
 import { Search, Calendar } from "lucide-react";
-import { format } from "date-fns";
 import { DateFilterPreset } from "@/lib/date-utils";
-import { ChannelAccount, ContentTypeConfig } from "@/lib/types";
+import { cn } from "@/lib/utils";
+import { ALL_STATUSES } from "@/lib/workflow";
+import { Campaign, ChannelAccount, ContentTypeConfig } from "@/lib/types";
 import { ContentFilterState } from "../hooks/use-content-filter";
 
 interface ContentToolbarProps {
   filter: ContentFilterState;
   channels: ChannelAccount[];
   contentTypes: ContentTypeConfig[];
+  campaigns: Campaign[];
 }
+
+const DATE_OPTIONS = [
+  { value: "all", label: "All Dates" },
+  { value: "today", label: "Today" },
+  { value: "this-week", label: "This Week" },
+  { value: "this-month", label: "This Month" },
+  { value: "next-7-days", label: "Next 7 Days" },
+  { value: "past-30-days", label: "Past 30 Days" },
+  { value: "custom", label: "Custom Range" },
+];
+
+const FORMAT_OPTIONS = [
+  { value: "all", label: "All Formats" },
+  { value: "poster", label: "Poster (Any)" },
+  { value: "video", label: "Video (Any)" },
+  { value: "both", label: "Both (Poster + Video)" },
+  { value: "poster_only", label: "Poster Only" },
+  { value: "video_only", label: "Video Only" },
+];
+
+const STATUS_OPTIONS = [
+  { value: "all", label: "All Statuses" },
+  ...ALL_STATUSES.map((status) => ({ value: status, label: status })),
+];
+
+// Two filters per row on phones, fixed widths on larger screens.
+const FILTER = "w-[calc(50%-0.25rem)] md:w-40";
 
 export function ContentToolbar({
   filter,
   channels,
   contentTypes,
+  campaigns,
 }: ContentToolbarProps) {
   const {
     search,
@@ -46,139 +71,118 @@ export function ContentToolbar({
     setSelectedFormat,
     selectedStatus,
     setSelectedStatus,
+    selectedCampaign,
+    setSelectedCampaign,
+    myWork,
+    setMyWork,
+    overdueOnly,
+    setOverdueOnly,
     resetFilters,
     hasActiveFilters,
   } = filter;
 
-  const parsedStart = customStartDate ? new Date(`${customStartDate}T00:00:00`) : undefined;
-  const parsedEnd = customEndDate ? new Date(`${customEndDate}T00:00:00`) : undefined;
-
   return (
     <Card className="p-4 space-y-3">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        {/* Search bar */}
-        <div className="relative flex-1 max-w-sm">
+        <div className="relative flex-1 lg:max-w-sm">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            type="text"
+            type="search"
+            aria-label="Search content"
             placeholder="Search by title, ID, or caption..."
             value={search}
+            enterKeyHint="search"
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
+            className={cn("pl-9", CONTROL_HEIGHT)}
           />
         </div>
 
-        {/* Filter dropdowns */}
         <div className="flex flex-wrap items-center gap-2">
-          {/* Date Preset Filter */}
-          <div className="w-36">
-            <Select
+          <div className={FILTER}>
+            <ResponsiveSelect
+              aria-label="Filter by date"
               value={datePreset}
-              onValueChange={(val) => val && setDatePreset(val as DateFilterPreset)}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Date Filter" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Dates</SelectItem>
-                <SelectItem value="today">Today</SelectItem>
-                <SelectItem value="this-week">This Week</SelectItem>
-                <SelectItem value="this-month">This Month</SelectItem>
-                <SelectItem value="next-7-days">Next 7 Days</SelectItem>
-                <SelectItem value="past-30-days">Past 30 Days</SelectItem>
-                <SelectItem value="custom">Custom Range</SelectItem>
-              </SelectContent>
-            </Select>
+              onValueChange={(value) => setDatePreset(value as DateFilterPreset)}
+              options={DATE_OPTIONS}
+            />
           </div>
-
-          {/* Channel Page Filter */}
-          <div className="w-44">
-            <Select
+          <div className={FILTER}>
+            <ResponsiveSelect
+              aria-label="Filter by channel"
               value={selectedAccount}
-              onValueChange={(val) => val && setSelectedAccount(val)}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Channel Account" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Channels</SelectItem>
-                {channels.map((ch) => (
-                  <SelectItem key={ch.id} value={ch.account_name}>
-                    {ch.platform} — {ch.account_name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              onValueChange={setSelectedAccount}
+              options={[
+                { value: "all", label: "All Channels" },
+                ...channels.map((ch) => ({ value: ch.account_name, label: `${ch.platform} — ${ch.account_name}` })),
+              ]}
+            />
           </div>
-
-          {/* Content Type Filter */}
-          <div className="w-40">
-            <Select
+          <div className={FILTER}>
+            <ResponsiveSelect
+              aria-label="Filter by content type"
               value={selectedType}
-              onValueChange={(val) => val && setSelectedType(val)}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Content Type" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Types</SelectItem>
-                {contentTypes.map((ct) => (
-                  <SelectItem key={ct.id} value={ct.name}>
-                    {ct.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              onValueChange={setSelectedType}
+              options={[
+                { value: "all", label: "All Types" },
+                ...contentTypes.map((ct) => ({ value: ct.name, label: ct.name })),
+              ]}
+            />
           </div>
-
-          {/* Media Format Filter (Poster, Video, Both) */}
-          <div className="w-36">
-            <Select
+          <div className={FILTER}>
+            <ResponsiveSelect
+              aria-label="Filter by format"
               value={selectedFormat}
-              onValueChange={(val) => val && setSelectedFormat(val)}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Media Format" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Formats</SelectItem>
-                <SelectItem value="poster">Poster (Any)</SelectItem>
-                <SelectItem value="video">Video (Any)</SelectItem>
-                <SelectItem value="both">Both (Poster + Video)</SelectItem>
-                <SelectItem value="poster_only">Poster Only</SelectItem>
-                <SelectItem value="video_only">Video Only</SelectItem>
-              </SelectContent>
-            </Select>
+              onValueChange={setSelectedFormat}
+              options={FORMAT_OPTIONS}
+            />
           </div>
-
-          {/* Status Filter */}
-          <div className="w-36">
-            <Select
+          <div className={FILTER}>
+            <ResponsiveSelect
+              aria-label="Filter by status"
               value={selectedStatus}
-              onValueChange={(val) => val && setSelectedStatus(val)}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Statuses</SelectItem>
-                <SelectItem value="Draft">Draft</SelectItem>
-                <SelectItem value="In Production">In Production</SelectItem>
-                <SelectItem value="In Review">In Review</SelectItem>
-                <SelectItem value="In Revise">In Revise</SelectItem>
-                <SelectItem value="Approved">Approved</SelectItem>
-                <SelectItem value="Scheduled">Scheduled</SelectItem>
-                <SelectItem value="Published">Published</SelectItem>
-              </SelectContent>
-            </Select>
+              onValueChange={setSelectedStatus}
+              options={STATUS_OPTIONS}
+            />
           </div>
+          {campaigns.length > 0 && (
+            <div className={FILTER}>
+              <ResponsiveSelect
+                aria-label="Filter by campaign"
+                value={selectedCampaign}
+                onValueChange={setSelectedCampaign}
+                options={[
+                  { value: "all", label: "All Campaigns" },
+                  ...campaigns.map((c) => ({ value: c.id, label: c.name })),
+                ]}
+              />
+            </div>
+          )}
+
+          <Button
+            variant={myWork ? "secondary" : "outline"}
+            size="sm"
+            aria-pressed={myWork}
+            onClick={() => setMyWork(!myWork)}
+            className={cn("text-xs", CONTROL_HEIGHT)}
+          >
+            My Work
+          </Button>
+          <Button
+            variant={overdueOnly ? "secondary" : "outline"}
+            size="sm"
+            aria-pressed={overdueOnly}
+            onClick={() => setOverdueOnly(!overdueOnly)}
+            className={cn("text-xs", CONTROL_HEIGHT)}
+          >
+            Overdue
+          </Button>
 
           {hasActiveFilters && (
             <Button
               variant="ghost"
               size="sm"
               onClick={resetFilters}
-              className="h-9 text-xs text-muted-foreground px-3"
+              className={cn("text-xs text-muted-foreground px-3", CONTROL_HEIGHT)}
             >
               Reset
             </Button>
@@ -186,28 +190,29 @@ export function ContentToolbar({
         </div>
       </div>
 
-      {/* Custom Date Range Picker row */}
       {datePreset === "custom" && (
         <div className="flex flex-wrap items-center gap-3 pt-3 border-t text-sm">
           <span className="font-medium text-muted-foreground flex items-center gap-1.5">
             <Calendar className="h-4 w-4" /> Date Range:
           </span>
-          <div className="flex items-center gap-2">
+          <div className="flex w-full items-center gap-2 md:w-auto">
             <span className="text-xs text-muted-foreground">From</span>
-            <div className="w-44">
-              <DatePicker
-                date={parsedStart}
-                onSelectDate={(d) => setCustomStartDate(d ? format(d, "yyyy-MM-dd") : "")}
+            <div className="min-w-0 flex-1 md:w-44">
+              <ResponsiveDatePicker
+                aria-label="Start date"
+                value={customStartDate}
+                onChange={setCustomStartDate}
                 placeholder="Start date"
               />
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex w-full items-center gap-2 md:w-auto">
             <span className="text-xs text-muted-foreground">To</span>
-            <div className="w-44">
-              <DatePicker
-                date={parsedEnd}
-                onSelectDate={(d) => setCustomEndDate(d ? format(d, "yyyy-MM-dd") : "")}
+            <div className="min-w-0 flex-1 md:w-44">
+              <ResponsiveDatePicker
+                aria-label="End date"
+                value={customEndDate}
+                onChange={setCustomEndDate}
                 placeholder="End date"
               />
             </div>
@@ -217,4 +222,3 @@ export function ContentToolbar({
     </Card>
   );
 }
-

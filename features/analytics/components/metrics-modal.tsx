@@ -2,18 +2,10 @@
 
 import React, { useState } from "react";
 import { ContentWithInsight } from "@/lib/types";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { CONTROL_HEIGHT, Field, FormActions, FormError } from "@/components/ui/form-layout";
 import { Input } from "@/components/ui/input";
-import { Card } from "@/components/ui/card";
-import { BarChart3, TrendingUp, MousePointerClick, Eye } from "lucide-react";
+import { ResponsiveModal } from "@/components/ui/responsive-modal";
 import { useWorkspace } from "@/context/workspace-context";
 
 export function MetricsModal() {
@@ -22,8 +14,10 @@ export function MetricsModal() {
   return <MetricsForm key={metricsModalItem.id} item={metricsModalItem} />;
 }
 
+const numberProps = { type: "number", min: "0", inputMode: "numeric", className: CONTROL_HEIGHT } as const;
+
 function MetricsForm({ item }: { item: ContentWithInsight }) {
-  const { metricsModalItem, closeMetricsModal, onSaveInsight } = useWorkspace();
+  const { closeMetricsModal, onSaveInsight } = useWorkspace();
 
   const [views, setViews] = useState<string>(item.insight?.views_impressions ? String(item.insight.views_impressions) : "");
   const [engagements, setEngagements] = useState<string>(item.insight?.engagements ? String(item.insight.engagements) : "");
@@ -65,119 +59,49 @@ function MetricsForm({ item }: { item: ContentWithInsight }) {
   };
 
   return (
-    <Dialog open={Boolean(metricsModalItem)} onOpenChange={(open) => !open && closeMetricsModal()}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary/10 text-primary">
-              <BarChart3 className="h-5 w-5" />
-            </div>
-            <div>
-              <DialogTitle className="text-lg font-semibold tracking-tight">
-                Log Performance Metrics
-              </DialogTitle>
-              <DialogDescription className="text-sm text-muted-foreground mt-0.5">
-                Manual weekly metrics entry for: <strong className="text-foreground">{item.title}</strong>
-              </DialogDescription>
-            </div>
-          </div>
-        </DialogHeader>
-
-        {error && (
-          <div className="rounded-md border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive font-medium">
-            {error}
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="space-y-4 pt-2">
-          {/* Post Reference info */}
-          <div className="rounded-lg border bg-muted/40 p-3 text-xs flex justify-between items-center">
-            <div>
-              <span className="text-muted-foreground font-mono block">{item.id}</span>
-              <span className="font-semibold text-foreground">{item.platform} &bull; {item.account_name}</span>
-            </div>
-            <div className="text-right">
-              <span className="text-muted-foreground block">Format</span>
-              <span className="font-medium text-foreground">
-                {item.is_poster && item.is_video ? "Poster + Video" : item.is_poster ? "Poster" : item.is_video ? "Video" : "Standard"}
-              </span>
-            </div>
-          </div>
-
-          {/* Form fields */}
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                <Eye className="h-3.5 w-3.5" /> Total Views / Impressions
-              </label>
-              <Input
-                type="number"
-                min="0"
-                placeholder="e.g. 12500"
-                value={views}
-                onChange={(e) => setViews(e.target.value)}
-                required
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                <TrendingUp className="h-3.5 w-3.5" /> Total Engagements (Likes, Comments, Shares)
-              </label>
-              <Input
-                type="number"
-                min="0"
-                placeholder="e.g. 450"
-                value={engagements}
-                onChange={(e) => setEngagements(e.target.value)}
-                required
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                <MousePointerClick className="h-3.5 w-3.5" /> Outbound Link Clicks
-              </label>
-              <Input
-                type="number"
-                min="0"
-                placeholder="e.g. 85"
-                value={clicks}
-                onChange={(e) => setClicks(e.target.value)}
-                required
-              />
-            </div>
-          </div>
-
-          {/* Live computed performance indicators */}
-          {numViews > 0 && (
-            <Card className="p-3 bg-primary/5 border-primary/20 space-y-1 text-xs">
-              <div className="flex justify-between items-center text-primary font-semibold">
-                <span>Calculated Engagement Rate:</span>
-                <span className="text-sm font-bold">{engagementRate}%</span>
-              </div>
-              <div className="flex justify-between items-center text-muted-foreground">
-                <span>Calculated Click-Through Rate (CTR):</span>
-                <span className="font-medium text-foreground">{ctr}%</span>
-              </div>
-            </Card>
-          )}
-
-          <DialogFooter className="pt-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={closeMetricsModal}
-              disabled={isSubmitting}
-            >
+    <ResponsiveModal
+      open
+      onClose={closeMetricsModal}
+      title="Log metrics"
+      description={`${item.title} · ${item.platform} · ${item.account_name}`}
+      footer={
+        <div className="space-y-3">
+          {error && <FormError>{error}</FormError>}
+          <FormActions>
+            <Button type="button" variant="outline" onClick={closeMetricsModal} disabled={isSubmitting}>
               Cancel
             </Button>
-            <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? "Saving Metrics..." : "Save Metrics"}
+            <Button type="submit" form="metrics-form" disabled={isSubmitting}>
+              {isSubmitting ? "Saving..." : "Save metrics"}
             </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+          </FormActions>
+        </div>
+      }
+    >
+      <form id="metrics-form" onSubmit={handleSubmit} className="space-y-3">
+        <Field label="Views / impressions" htmlFor="metric-views" required>
+          <Input id="metric-views" {...numberProps} placeholder="e.g. 12500" value={views} onChange={(e) => setViews(e.target.value)} required />
+        </Field>
+        <Field label="Engagements" htmlFor="metric-engagements" hint="Likes, comments, shares" required>
+          <Input id="metric-engagements" {...numberProps} placeholder="e.g. 450" value={engagements} onChange={(e) => setEngagements(e.target.value)} required />
+        </Field>
+        <Field label="Link clicks" htmlFor="metric-clicks" required>
+          <Input id="metric-clicks" {...numberProps} placeholder="e.g. 85" value={clicks} onChange={(e) => setClicks(e.target.value)} required />
+        </Field>
+
+        {numViews > 0 && (
+          <dl className="space-y-1 rounded-lg border bg-muted/40 p-3">
+            <div className="flex justify-between">
+              <dt className="text-muted-foreground">Engagement rate</dt>
+              <dd className="font-semibold text-foreground">{engagementRate}%</dd>
+            </div>
+            <div className="flex justify-between">
+              <dt className="text-muted-foreground">Click-through rate</dt>
+              <dd className="font-semibold text-foreground">{ctr}%</dd>
+            </div>
+          </dl>
+        )}
+      </form>
+    </ResponsiveModal>
   );
 }

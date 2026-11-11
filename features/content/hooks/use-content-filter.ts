@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { format } from "date-fns";
 import { ContentWithInsight } from "@/lib/types";
 import { isDateInFilter, DateFilterPreset } from "@/lib/date-utils";
+import { isOverdue } from "@/lib/workflow";
 
 export interface ContentFilterState {
   search: string;
@@ -21,12 +23,18 @@ export interface ContentFilterState {
   setSelectedFormat: (format: string) => void;
   selectedStatus: string;
   setSelectedStatus: (status: string) => void;
+  selectedCampaign: string;
+  setSelectedCampaign: (campaign: string) => void;
+  myWork: boolean;
+  setMyWork: (on: boolean) => void;
+  overdueOnly: boolean;
+  setOverdueOnly: (on: boolean) => void;
   resetFilters: () => void;
   hasActiveFilters: boolean;
   filteredItems: ContentWithInsight[];
 }
 
-export function useContentFilter(items: ContentWithInsight[]): ContentFilterState {
+export function useContentFilter(items: ContentWithInsight[], currentEmail: string): ContentFilterState {
   const [search, setSearch] = useState("");
   const [datePreset, setDatePreset] = useState<DateFilterPreset>("all");
   const [customStartDate, setCustomStartDate] = useState("");
@@ -35,9 +43,19 @@ export function useContentFilter(items: ContentWithInsight[]): ContentFilterStat
   const [selectedType, setSelectedType] = useState("all");
   const [selectedFormat, setSelectedFormat] = useState("all");
   const [selectedStatus, setSelectedStatus] = useState("all");
+  const [selectedCampaign, setSelectedCampaign] = useState("all");
+  const [myWork, setMyWork] = useState(false);
+  const [overdueOnly, setOverdueOnly] = useState(false);
 
   const filteredItems = useMemo(() => {
+    const today = format(new Date(), "yyyy-MM-dd");
     return items.filter((item) => {
+      // Archived posts stay out of the way unless asked for.
+      if (selectedStatus === "all" && item.status === "Archived") return false;
+      if (selectedCampaign !== "all" && item.campaign_id !== selectedCampaign) return false;
+      if (myWork && item.assignee_email !== currentEmail && item.reviewer_email !== currentEmail) return false;
+      if (overdueOnly && !isOverdue(item, today)) return false;
+
       // Date filter
       if (!isDateInFilter(item.publish_date, datePreset, customStartDate, customEndDate)) {
         return false;
@@ -76,10 +94,17 @@ export function useContentFilter(items: ContentWithInsight[]): ContentFilterStat
     selectedType,
     selectedFormat,
     selectedStatus,
+    selectedCampaign,
+    myWork,
+    overdueOnly,
+    currentEmail,
     search,
   ]);
 
   const resetFilters = () => {
+    setSelectedCampaign("all");
+    setMyWork(false);
+    setOverdueOnly(false);
     setDatePreset("all");
     setCustomStartDate("");
     setCustomEndDate("");
@@ -96,6 +121,9 @@ export function useContentFilter(items: ContentWithInsight[]): ContentFilterStat
     selectedType !== "all" ||
     selectedFormat !== "all" ||
     selectedStatus !== "all" ||
+    selectedCampaign !== "all" ||
+    myWork ||
+    overdueOnly ||
     Boolean(customStartDate) ||
     Boolean(customEndDate) ||
     Boolean(search.trim());
@@ -117,6 +145,12 @@ export function useContentFilter(items: ContentWithInsight[]): ContentFilterStat
     setSelectedFormat,
     selectedStatus,
     setSelectedStatus,
+    selectedCampaign,
+    setSelectedCampaign,
+    myWork,
+    setMyWork,
+    overdueOnly,
+    setOverdueOnly,
     resetFilters,
     hasActiveFilters,
     filteredItems,

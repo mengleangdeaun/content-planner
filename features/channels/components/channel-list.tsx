@@ -1,196 +1,151 @@
 "use client";
 
 import React, { useState } from "react";
-import { ChannelAccount } from "@/lib/types";
-import {
-  Table,
-  TableHeader,
-  TableBody,
-  TableHead,
-  TableRow,
-  TableCell,
-} from "@/components/ui/table";
-import { Button } from "@/components/ui/button";
+import { format } from "date-fns";
+import { Plus, Search } from "lucide-react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { Plus, ExternalLink, Edit, Trash2 } from "lucide-react";
-import { ChannelModal } from "./channel-modal";
-import { useWorkspace } from "@/context/workspace-context";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { CONTROL_HEIGHT } from "@/components/ui/form-layout";
+import { Input } from "@/components/ui/input";
+import { ResponsiveSelect } from "@/components/ui/responsive-select";
 import { useAuth } from "@/context/auth-context";
+import { useWorkspace } from "@/context/workspace-context";
 import { UpgradeSheetButton } from "@/features/integrations";
+import { resolveChannelId } from "@/lib/auth/permissions";
+import { channelHealth } from "@/lib/settings-rules";
+import { ChannelAccount } from "@/lib/types";
+import { cn } from "@/lib/utils";
+import { ChannelDetail } from "./channel-detail";
+import { ChannelHealthBar } from "./channel-health-bar";
+import { ChannelModal } from "./channel-modal";
 
-interface ChannelListProps {
-  channels?: ChannelAccount[];
-  onSaveChannel?: (channel: Omit<ChannelAccount, "id"> & { id?: string }) => Promise<void>;
-  onDeleteChannel?: (id: string) => Promise<void>;
-}
+const ALL = "all";
+const NO_BRAND = "none";
 
-export function ChannelList(props: ChannelListProps) {
-  const workspace = useWorkspace();
+export function ChannelList() {
+  const { channels, items, people } = useWorkspace();
   const canManage = useAuth().can("channels.manage");
-  const channels = props.channels ?? workspace.channels;
-  const onSaveChannel = props.onSaveChannel ?? workspace.onSaveChannel;
-  const onDeleteChannel = props.onDeleteChannel ?? workspace.onDeleteChannel;
+  const [search, setSearch] = useState("");
+  const [brand, setBrand] = useState(ALL);
+  const [viewingId, setViewingId] = useState<string | null>(null);
+  const [editing, setEditing] = useState<ChannelAccount | "new" | null>(null);
 
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingChannel, setEditingChannel] = useState<ChannelAccount | null>(null);
+  const today = format(new Date(), "yyyy-MM-dd");
+  const brands = [...new Set(channels.map((c) => c.brand).filter(Boolean))].sort() as string[];
+  const viewing = channels.find((c) => c.id === viewingId) ?? null;
 
-  const handleOpenAdd = () => {
-    setEditingChannel(null);
-    setIsModalOpen(true);
-  };
+  const query = search.trim().toLowerCase();
+  const visible = channels.filter((c) => {
+    if (brand === NO_BRAND ? c.brand : brand !== ALL && c.brand !== brand) return false;
+    return !query || [c.account_name, c.handle, c.platform].some((v) => v?.toLowerCase().includes(query));
+  });
 
-  const handleOpenEdit = (channel: ChannelAccount) => {
-    setEditingChannel(channel);
-    setIsModalOpen(true);
-  };
+  const ownerName = (email?: string) => people.find((p) => p.email === email)?.name ?? email;
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">
-            Channel Accounts
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Configure your brand profiles, publishing handles, and weekly target benchmarks.
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">Channel Accounts</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Your publishing accounts, their weekly targets, and how each one is tracking.
           </p>
         </div>
-
-        <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+        <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
           <UpgradeSheetButton />
           {canManage && (
-            <Button onClick={handleOpenAdd} size="default" className="gap-2 font-medium">
+            <Button onClick={() => setEditing("new")} className="gap-2 font-medium">
               <Plus className="h-4 w-4" />
-              <span>Add Channel Account</span>
+              <span>Add Channel</span>
             </Button>
           )}
         </div>
       </div>
 
-      {/* Channels Table */}
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead className="w-28">ID</TableHead>
-            <TableHead className="w-48">Platform & Page</TableHead>
-            <TableHead className="w-36">Handle</TableHead>
-            <TableHead className="w-32 text-center">Weekly Target</TableHead>
-            <TableHead className="w-28">Status</TableHead>
-            <TableHead className="min-w-[200px]">Strategy Notes</TableHead>
-            <TableHead className="w-28 text-right">Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {channels.length === 0 ? (
-            <TableRow>
-              <TableCell colSpan={7} className="h-32 text-center text-muted-foreground text-sm">
-                No channels configured yet. Click &quot;Add Channel Account&quot; to create one.
-              </TableCell>
-            </TableRow>
-          ) : (
-            channels.map((ch) => (
-              <TableRow key={ch.id}>
-                <TableCell className="font-mono text-xs font-semibold text-muted-foreground">
-                  {ch.id}
-                </TableCell>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_14rem]">
+        <div className="relative">
+          <Search className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            type="search"
+            aria-label="Search channels"
+            placeholder="Search channels..."
+            value={search}
+            enterKeyHint="search"
+            onChange={(e) => setSearch(e.target.value)}
+            className={cn("pl-9", CONTROL_HEIGHT)}
+          />
+        </div>
+        <ResponsiveSelect
+          aria-label="Filter by brand"
+          value={brand}
+          onValueChange={setBrand}
+          options={[
+            { value: ALL, label: "All brands" },
+            ...brands.map((b) => ({ value: b, label: b })),
+            { value: NO_BRAND, label: "No brand" },
+          ]}
+        />
+      </div>
 
-                <TableCell>
-                  <div className="flex items-center gap-2.5">
-                    <Avatar className="h-8 w-8">
-                      {ch.avatar_url && (
-                        <AvatarImage src={ch.avatar_url} alt={ch.account_name} />
-                      )}
-                      <AvatarFallback className="text-[10px] font-bold">
-                        {ch.account_name.slice(0, 2).toUpperCase()}
+      {visible.length === 0 ? (
+        <Card className="p-10 text-center text-sm text-muted-foreground">
+          {channels.length === 0 ? "No channels yet." : "No channels match these filters."}
+        </Card>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {visible.map((channel) => {
+            const posts = items.filter((item) => resolveChannelId(item, channels) === channel.id);
+            return (
+              <Card key={channel.id} className="p-0">
+                <button
+                  type="button"
+                  onClick={() => setViewingId(channel.id)}
+                  className="flex w-full flex-col gap-3 rounded-xl p-4 text-left outline-none hover:bg-muted/30 focus-visible:ring-3 focus-visible:ring-ring/50"
+                >
+                  <div className="flex w-full items-start gap-3">
+                    <Avatar className="h-10 w-10">
+                      {channel.avatar_url && <AvatarImage src={channel.avatar_url} alt="" />}
+                      <AvatarFallback className="text-xs font-bold">
+                        {channel.account_name.slice(0, 2).toUpperCase()}
                       </AvatarFallback>
                     </Avatar>
-                    <div>
-                      <span className="font-semibold text-foreground text-sm block">
-                        {ch.account_name}
+                    <div className="min-w-0 flex-1">
+                      <span className="block truncate font-semibold text-foreground">{channel.account_name}</span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {[channel.platform, channel.handle].filter(Boolean).join(" · ")}
                       </span>
-                      <span className="text-xs text-muted-foreground">{ch.platform}</span>
                     </div>
+                    {channel.status !== "Active" && <Badge variant="secondary">{channel.status}</Badge>}
                   </div>
-                </TableCell>
+                  <div className="flex flex-wrap gap-1.5 text-xs">
+                    {channel.brand && <Badge variant="outline">{channel.brand}</Badge>}
+                    {channel.owner_email && (
+                      <span className="text-muted-foreground">Owner: {ownerName(channel.owner_email)}</span>
+                    )}
+                  </div>
+                  <div className="w-full">
+                    <ChannelHealthBar health={channelHealth(channel, posts, today)} />
+                  </div>
+                </button>
+              </Card>
+            );
+          })}
+        </div>
+      )}
 
-                <TableCell className="text-xs font-medium">
-                  {ch.page_url ? (
-                    <a
-                      href={ch.page_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-primary hover:underline flex items-center gap-1 inline-flex"
-                    >
-                      <span>{ch.handle || ch.account_name}</span>
-                      <ExternalLink className="h-3 w-3" />
-                    </a>
-                  ) : (
-                    <span>{ch.handle || "—"}</span>
-                  )}
-                </TableCell>
-
-                <TableCell className="text-center font-bold text-sm">
-                  {ch.weekly_target_quota} / wk
-                </TableCell>
-
-                <TableCell>
-                  <Badge
-                    variant={
-                      ch.status === "Active"
-                        ? "default"
-                        : ch.status === "Paused"
-                        ? "secondary"
-                        : "outline"
-                    }
-                    className="text-xs font-medium"
-                  >
-                    {ch.status}
-                  </Badge>
-                </TableCell>
-
-                <TableCell className="text-xs text-muted-foreground max-w-xs truncate">
-                  {ch.notes || "—"}
-                </TableCell>
-
-                <TableCell className="text-right">
-                  {canManage && (
-                    <div className="flex items-center justify-end gap-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleOpenEdit(ch)}
-                        className="h-8 w-8 p-0"
-                      >
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => onDeleteChannel(ch.id)}
-                        className="h-8 w-8 p-0 text-destructive hover:text-destructive"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  )}
-                </TableCell>
-              </TableRow>
-            ))
-          )}
-        </TableBody>
-      </Table>
-
-      {isModalOpen && (
-        <ChannelModal
-          isOpen
-          onClose={() => setIsModalOpen(false)}
-          onSave={onSaveChannel}
-          channelToEdit={editingChannel}
+      {viewing && (
+        <ChannelDetail
+          channel={viewing}
+          onClose={() => setViewingId(null)}
+          onEdit={() => {
+            setViewingId(null); // Two sheets at once fight over focus.
+            setEditing(viewing);
+          }}
         />
       )}
+      {editing && <ChannelModal channelToEdit={editing === "new" ? null : editing} onClose={() => setEditing(null)} />}
     </div>
   );
 }
-

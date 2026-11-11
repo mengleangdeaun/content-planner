@@ -58,8 +58,9 @@ export function parseBool(value: string): boolean {
 }
 
 // Sheets returns formatted text, so a number cell can read "12,500".
-export function parseNumber(value: string): number {
-  return Number(value.replace(/,/g, "")) || 0;
+// Accepts sheet text ("1,250") and values not yet written to the sheet (1250).
+export function parseNumber(value: unknown): number {
+  return Number(cellToString(value).replace(/,/g, "")) || 0;
 }
 
 export function pickFields(input: object, allowed: readonly string[]): Fields {

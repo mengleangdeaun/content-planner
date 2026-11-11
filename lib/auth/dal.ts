@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { getAllData } from "../data-store";
 import { getMembers } from "../team-store";
 import { SheetError } from "../sheets/core";
 import { Member, Permission, canAccessChannel, canAccessContent, hasPermission, normalizeEmail } from "./permissions";
@@ -35,6 +36,23 @@ export function assertChannelAccess(member: Member, channelId: string) {
   if (!canAccessChannel(member, channelId)) {
     throw new SheetError("You do not have access to this channel.", 403);
   }
+}
+
+// Work can only be given to people on the team, so it cannot go to an unknown address.
+export async function assertTeamMembers(emails: unknown[]) {
+  const people = emails.filter((email): email is string => typeof email === "string" && email !== "");
+  if (people.length === 0) return;
+  const members = await getMembers();
+  const isMember = (email: string) =>
+    members.some((m) => m.status === "active" && m.email === normalizeEmail(email));
+  if (!people.every(isMember)) throw new SheetError("Assignees must be active team members.", 400);
+}
+
+export async function assertCanReachContent(member: Member, contentId: string | null | undefined) {
+  const { data, channels } = await getAllData();
+  const content = data.find((item) => item.id === contentId);
+  if (!content) throw new SheetError("That post was not found.", 404);
+  assertContentAccess(member, content, channels);
 }
 
 export function assertContentAccess(

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { assertChannelAccess, requirePermission } from "@/lib/auth/dal";
+import { assertChannelAccess, assertTeamMembers, requirePermission } from "@/lib/auth/dal";
 import { canAccessChannel } from "@/lib/auth/permissions";
 import {
   addChannel,
@@ -25,13 +25,7 @@ export async function POST(req: NextRequest) {
   try {
     await requirePermission("channels.manage");
     const body = await req.json();
-
-    if (!body.platform || !body.account_name) {
-      return NextResponse.json(
-        { error: "Platform and account name are required" },
-        { status: 400 }
-      );
-    }
+    await assertTeamMembers([body.owner_email]);
     const created = await addChannel(body);
     return NextResponse.json({ success: true, channel: created });
   } catch (error: unknown) {
@@ -51,6 +45,7 @@ export async function PUT(req: NextRequest) {
       );
     }
     assertChannelAccess(member, body.id);
+    await assertTeamMembers([body.owner_email]);
     const updated = await updateChannel(body);
     return NextResponse.json({ success: true, channel: updated });
   } catch (error: unknown) {
@@ -59,6 +54,7 @@ export async function PUT(req: NextRequest) {
   }
 }
 
+// Archives the channel: the row and its posts stay in the sheet.
 export async function DELETE(req: NextRequest) {
   try {
     const member = await requirePermission("channels.manage");
@@ -71,7 +67,7 @@ export async function DELETE(req: NextRequest) {
     await deleteChannel(id);
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Failed to delete channel";
+    const message = error instanceof Error ? error.message : "Failed to archive channel";
     return NextResponse.json({ error: message }, { status: errorStatus(error) });
   }
 }

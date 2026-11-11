@@ -17,8 +17,11 @@ import {
 import { Button } from "@/components/ui/button";
 import {
   CalendarDays,
+  CalendarRange,
+  Flag,
   LayoutDashboard,
   Layers,
+  ListChecks,
   LogOut,
   TrendingUp,
   Share2,
@@ -33,6 +36,9 @@ import { UpgradeSheetButton } from "@/features/integrations";
 
 export type NavView =
   | "pipeline"
+  | "calendar"
+  | "campaigns"
+  | "tasks"
   | "owner-hub"
   | "analytics"
   | "channels"
@@ -109,6 +115,42 @@ export function AppSidebar({
                 </SidebarMenuButton>
               </SidebarMenuItem>
 
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  isActive={activeView === "calendar"}
+                  onClick={() => setActiveView("calendar")}
+                  tooltip="Calendar"
+                  className="gap-2.5 font-medium text-sm"
+                >
+                  <CalendarRange className="h-4 w-4" />
+                  <span>Calendar</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  isActive={activeView === "campaigns"}
+                  onClick={() => setActiveView("campaigns")}
+                  tooltip="Campaigns"
+                  className="gap-2.5 font-medium text-sm"
+                >
+                  <Flag className="h-4 w-4" />
+                  <span>Campaigns</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  isActive={activeView === "tasks"}
+                  onClick={() => setActiveView("tasks")}
+                  tooltip="Tasks"
+                  className="gap-2.5 font-medium text-sm"
+                >
+                  <ListChecks className="h-4 w-4" />
+                  <span>Tasks</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+
               {can("metrics.view") && (
                 <SidebarMenuItem>
                   <SidebarMenuButton
@@ -151,11 +193,11 @@ export function AppSidebar({
                 <SidebarMenuButton
                   isActive={activeView === "taxonomies"}
                   onClick={() => setActiveView("taxonomies")}
-                  tooltip="Content Taxonomies"
+                  tooltip="Content Types"
                   className="gap-2.5 font-medium text-sm"
                 >
                   <Tags className="h-4 w-4" />
-                  <span>Content Taxonomies</span>
+                  <span>Content Types</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
 
