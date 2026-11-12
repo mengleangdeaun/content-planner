@@ -39,13 +39,26 @@ export function ResponsiveModal({
   const isMobile = useIsMobile();
   // Parents unmount this on close, so wait for the slide-out to finish before telling them.
   const [closing, setClosing] = React.useState(false);
+
+  // Reset closing state whenever the controlled open prop changes
+  React.useEffect(() => {
+    setClosing(false);
+  }, [open]);
+
   const root = {
     open: open && !closing,
     onOpenChange: (next: boolean) => {
-      if (!next) setClosing(true);
+      if (!next) {
+        setClosing(true);
+      } else {
+        setClosing(false);
+      }
     },
     onOpenChangeComplete: (next: boolean) => {
-      if (!next) onClose();
+      if (!next) {
+        setClosing(false);
+        onClose();
+      }
     },
   };
 

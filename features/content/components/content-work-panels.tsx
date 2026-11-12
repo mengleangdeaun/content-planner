@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import { format } from "date-fns";
-import { ArrowRight, CalendarDays, Flag, ListChecks, MessageSquare, Pencil, Plus, UserRound } from "lucide-react";
+import { ArrowRight, CalendarDays, ExternalLink, Flag, ListChecks, MessageSquare, Pencil, Plus, UserRound } from "lucide-react";
 import { PersonAvatar } from "@/components/shared/person-avatar";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -19,6 +19,7 @@ import { useWorkspace } from "@/context/workspace-context";
 import { TaskItem } from "@/features/planning/components/task-list";
 import { addComment, fetchActivity } from "@/features/planning/services/planning-service";
 import { canComment } from "@/lib/auth/permissions";
+import { linkOverSelection, parseComment, shortUrl } from "@/lib/comment-links";
 import { ActivityEntry, ContentWithInsight } from "@/lib/types";
 import { groupByDay, relativeDayLabel } from "@/lib/workflow";
 
@@ -224,13 +225,24 @@ export function ContentActivityPanel({ item }: { item: ContentWithInsight }) {
               value={comment}
               autoCapitalize="sentences"
               onChange={(e) => setComment(e.target.value)}
+              onPaste={(e) => {
+                // A URL pasted over selected words becomes a named link; any other paste is untouched.
+                const box = e.currentTarget;
+                const named = linkOverSelection(comment, box.selectionStart, box.selectionEnd, e.clipboardData.getData("text"));
+                if (!named) return;
+                e.preventDefault();
+                setComment(named.text);
+                requestAnimationFrame(() => box.setSelectionRange(named.caret, named.caret));
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) e.currentTarget.form?.requestSubmit();
               }}
               className="resize-none"
             />
             <div className="flex items-center justify-end gap-3">
-              {!isMobile && <span className="text-xs text-muted-foreground">Ctrl + Enter to post</span>}
+              <span className="text-xs text-muted-foreground">
+                Select words and paste a link to name it{!isMobile && " · Ctrl + Enter to post"}
+              </span>
               <Button type="submit" variant="outline" disabled={isSaving || !comment.trim()} className={CONTROL_HEIGHT}>
                 {isSaving ? "Posting..." : "Post comment"}
               </Button>
@@ -280,14 +292,14 @@ export function ContentActivityPanel({ item }: { item: ContentWithInsight }) {
                             {name}
                             {time}
                           </p>
-                          <p
+                          <div
                             className={cn(
                               "rounded-lg border p-3 break-words whitespace-pre-wrap text-foreground",
                               entry.actor_email === currentUser.email ? "border-primary/30 bg-primary/5" : "bg-muted/40"
                             )}
                           >
-                            {entry.body}
-                          </p>
+                            <CommentBody text={entry.body} />
+                          </div>
                         </div>
                       ) : (
                         <div className="flex min-w-0 flex-1 items-start justify-between gap-2 pt-1">
@@ -306,5 +318,30 @@ export function ContentActivityPanel({ item }: { item: ContentWithInsight }) {
         </ol>
       )}
     </div>
+  );
+}
+
+/** A comment's text with its links made clickable. Only parsed http(s) URLs ever reach href. */
+function CommentBody({ text }: { text: string }) {
+  return (
+    <>
+      {parseComment(text).map((segment, i) =>
+        segment.type === "text" ? (
+          <React.Fragment key={i}>{segment.text}</React.Fragment>
+        ) : (
+          <a
+            key={i}
+            href={segment.url}
+            target="_blank"
+            rel="noopener noreferrer nofollow"
+            title={segment.url}
+            className="font-medium break-all text-primary underline underline-offset-2 hover:decoration-2"
+          >
+            {segment.label ?? shortUrl(segment.url)}
+            <ExternalLink aria-hidden className="ml-0.5 inline size-3 align-[-1px]" />
+          </a>
+        )
+      )}
+    </>
   );
 }

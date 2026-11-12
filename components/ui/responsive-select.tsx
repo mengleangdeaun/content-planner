@@ -11,8 +11,10 @@ export interface SelectOption {
   label: string;
   /** A second, smaller line in searchable dropdowns, e.g. a post's channel and date. Search matches the label. */
   hint?: string;
-  /** Shown before the label in searchable dropdowns, e.g. a person's photo. Phones show text only. */
+  /** Shown before the label in dropdown lists, e.g. a person's photo. Phones show text only. */
   icon?: React.ReactNode;
+  /** A colored dot class shown before the label in the desktop list, e.g. "bg-amber-500". */
+  dot?: string;
 }
 
 export interface ResponsiveSelectProps {
@@ -126,6 +128,8 @@ export function ResponsiveSelect({
       <SelectContent>
         {options.map((option) => (
           <SelectItem key={option.value} value={option.value}>
+            {option.dot && <span aria-hidden className={cn("size-2 shrink-0 rounded-full", option.dot)} />}
+            {option.icon && <span className="shrink-0">{option.icon}</span>}
             {option.label}
           </SelectItem>
         ))}

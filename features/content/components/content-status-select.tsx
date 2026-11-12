@@ -28,8 +28,8 @@ export function ContentStatusSelect({ item, onStatusChange, className }: Content
       disabled={moves.length === 0}
       className={className}
       prefix={<span className={cn("size-2 shrink-0 rounded-full", style.dot)} />}
-      toneClassName={cn("rounded-full font-medium shadow-none", style.pill)}
-      options={[item.status, ...moves].map((status) => ({ value: status, label: status }))}
+      toneClassName={cn("rounded-md font-medium shadow-none", style.pill)}
+      options={[item.status, ...moves].map((status) => ({ value: status, label: status, dot: statusStyle(status).dot }))}
       onValueChange={(value) => value !== item.status && onStatusChange(item, value as ContentStatus)}
     />
   );

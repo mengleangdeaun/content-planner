@@ -16,6 +16,7 @@ import {
   normalizeEmail,
   wouldRemoveLastOwner,
 } from "./auth/permissions";
+import { upgradeSpreadsheetStructure } from "./google-sheets";
 import { SheetError } from "./sheets/core";
 import { appendRows, loadAll, patchRow } from "./sheets/table";
 
@@ -116,10 +117,20 @@ export async function updateMember(
   });
 }
 
-// The photo column arrives with "Upgrade Sheet Structure"; until then, sign-in and names still save.
+// Sheets made before photos existed lack the avatar_url column. Sign-in adds it with the same
+// append-only upgrade as the "Upgrade Sheet Structure" button, so nobody has to remember that click.
+// If the upgrade fails, sign-in and names still save; only the photo is skipped.
 async function photoField(avatar: string): Promise<string | undefined> {
   if (!avatar) return undefined;
-  return (await loadAll()).Team_Members.headers.includes("avatar_url") ? avatar : undefined;
+  const hasColumn = async () => (await loadAll()).Team_Members.headers.includes("avatar_url");
+  if (await hasColumn()) return avatar;
+  try {
+    await upgradeSpreadsheetStructure(); // Clears the cache, so the check below reads the new header.
+  } catch (error) {
+    console.error("Could not add the avatar_url column:", error);
+    return undefined;
+  }
+  return (await hasColumn()) ? avatar : undefined;
 }
 
 // ADMIN_EMAILS owners may have no sheet row; this gives them one so their name and photo have a home.

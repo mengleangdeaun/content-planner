@@ -82,7 +82,8 @@ export function AppSidebar({
   return (
     <Sidebar variant="sidebar" collapsible="icon">
       {/* Workspace Brand Header */}
-      <SidebarHeader className="h-12 border-b px-3 flex items-center justify-center">
+      {/* SidebarHeader is a column: items-* sets the left/right position, justify-* the vertical one. */}
+      <SidebarHeader className="h-12 justify-center border-b px-3 items-start group-data-[collapsible=icon]:items-center">
         {/* Expanded: landscape logo */}
         <img
           src="/assets/logo-landscape.svg"

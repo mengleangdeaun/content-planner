@@ -39,8 +39,8 @@ export function TaskStatusSelect({ task, disabled, className }: TaskStatusSelect
       disabled={disabled}
       className={className}
       prefix={<span className={cn("size-2 shrink-0 rounded-full", style.dot)} />}
-      toneClassName={cn("rounded-full font-medium shadow-none", style.pill)}
-      options={TASK_STATUSES}
+      toneClassName={cn("rounded-md font-medium shadow-none", style.pill)}
+      options={TASK_STATUSES.map((s) => ({ ...s, dot: (TASK_STATUS_STYLE[s.value] ?? TASK_STATUS_STYLE.open).dot }))}
       onValueChange={(status) => status !== task.status && onUpdateTask(task, { status: status as ContentTask["status"] })}
     />
   );
