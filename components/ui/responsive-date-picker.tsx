@@ -18,6 +18,8 @@ interface ResponsiveDatePickerProps {
   id?: string;
   "aria-label"?: string;
   className?: string;
+  /** Desktop button text format, e.g. "MMM d, yyyy". Phones show the OS format. */
+  displayFormat?: string;
 }
 
 // A native date input on phones opens the OS calendar. Desktop keeps the styled picker.
@@ -30,6 +32,7 @@ export function ResponsiveDatePicker({
   id,
   "aria-label": ariaLabel,
   className,
+  displayFormat,
 }: ResponsiveDatePickerProps) {
   const isMobile = useIsMobile();
 
@@ -41,6 +44,7 @@ export function ResponsiveDatePicker({
         placeholder={placeholder}
         disabled={disabled}
         className={className}
+        displayFormat={displayFormat}
       />
     );
   }

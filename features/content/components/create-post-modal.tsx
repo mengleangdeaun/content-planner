@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { ResponsiveDatePicker } from "@/components/ui/responsive-date-picker";
 import { ResponsiveModal } from "@/components/ui/responsive-modal";
 import { ResponsiveSelect } from "@/components/ui/responsive-select";
+import { SearchableSelect } from "@/components/shared/searchable-select";
 import { Textarea } from "@/components/ui/textarea";
 import { Video, Image as ImageIcon } from "lucide-react";
 import { format } from "date-fns";
@@ -208,7 +209,7 @@ function PostForm({ form }: { form: PostFormState }) {
 
           <Field label={editing ? "Channel" : "Channels"} htmlFor={editing ? "channel" : undefined} required={!editing}>
             {editing ? (
-              <ResponsiveSelect
+              <SearchableSelect
                 id="channel"
                 value={channelIds[0] ?? ""}
                 onValueChange={(value) => setChannelIds([value])}
@@ -231,7 +232,7 @@ function PostForm({ form }: { form: PostFormState }) {
 
           <FieldRow>
             <Field label="Content type" htmlFor="contentType">
-              <ResponsiveSelect
+              <SearchableSelect
                 id="contentType"
                 value={contentType}
                 onValueChange={changeType}
@@ -275,10 +276,10 @@ function PostForm({ form }: { form: PostFormState }) {
         <FormSection title="Team & workflow">
           <FieldRow>
             <Field label="Assignee" htmlFor="assignee">
-              <ResponsiveSelect id="assignee" value={assignee} onValueChange={setAssignee} options={peopleOptions} />
+              <SearchableSelect id="assignee" value={assignee} onValueChange={setAssignee} options={peopleOptions} />
             </Field>
             <Field label="Reviewer" htmlFor="reviewer">
-              <ResponsiveSelect id="reviewer" value={reviewer} onValueChange={setReviewer} options={peopleOptions} />
+              <SearchableSelect id="reviewer" value={reviewer} onValueChange={setReviewer} options={peopleOptions} />
             </Field>
             <Field label="Status" htmlFor="status">
               <ResponsiveSelect
@@ -292,7 +293,7 @@ function PostForm({ form }: { form: PostFormState }) {
               <ResponsiveSelect id="priority" value={priority} onValueChange={setPriority} options={priorityOptions} />
             </Field>
             <Field label="Campaign" htmlFor="campaign">
-              <ResponsiveSelect id="campaign" value={campaignId} onValueChange={setCampaignId} options={campaignOptions} />
+              <SearchableSelect id="campaign" value={campaignId} onValueChange={setCampaignId} options={campaignOptions} />
             </Field>
           </FieldRow>
         </FormSection>

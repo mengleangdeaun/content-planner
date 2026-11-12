@@ -92,6 +92,27 @@ export function isTaskOverdue(task: { due_date?: string; status: string }, today
   return task.due_date < today;
 }
 
+/** Splits a list into runs that share a day, keeping the list's order. `dayOf` returns "YYYY-MM-DD". */
+export function groupByDay<T>(entries: T[], dayOf: (entry: T) => string): { day: string; entries: T[] }[] {
+  const groups: { day: string; entries: T[] }[] = [];
+  for (const entry of entries) {
+    const day = dayOf(entry);
+    const last = groups[groups.length - 1];
+    if (last?.day === day) last.entries.push(entry);
+    else groups.push({ day, entries: [entry] });
+  }
+  return groups;
+}
+
+/** "Today" or "Yesterday" for those two days, otherwise null so the caller shows the date. */
+export function relativeDayLabel(day: string, today: string): "Today" | "Yesterday" | null {
+  if (day === today) return "Today";
+  const yesterday = new Date(new Date(`${today}T00:00:00Z`).getTime() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  return day === yesterday ? "Yesterday" : null;
+}
+
+export const NO_TASKS ={ done: 0, total: 0, percent: 0 } as const;
+
 export function taskProgress(tasks: { status: string }[]): { done: number; total: number; percent: number } {
   const live = tasks.filter((task) => task.status !== "archived");
   const done = live.filter((task) => task.status === "done").length;

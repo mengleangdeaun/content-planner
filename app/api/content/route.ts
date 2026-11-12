@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
     const forceFresh = searchParams.get("fresh") === "true";
     const people = (await getMembers())
       .filter((m) => m.status === "active")
-      .map(({ email, name }) => ({ email, name }));
+      .map(({ email, name, avatar_url }) => ({ email, name, avatar_url }));
     return NextResponse.json({ ...scopeWorkspace(await getAllData(forceFresh), member), people });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to fetch content";

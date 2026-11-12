@@ -59,12 +59,21 @@ function toContent(row: Row): ContentItem {
   } as unknown as ContentItem;
 }
 
+// Optional counts stay undefined when blank, so "not counted" never shows as 0.
+const optionalCount = (value: string | undefined) => (value ? parseNumber(value) : undefined);
+
 function toInsight(row: Row): ContentInsight {
   return {
     id: row.id,
     views_impressions: parseNumber(row.views_impressions ?? ""),
     engagements: parseNumber(row.engagements ?? ""),
     clicks: parseNumber(row.clicks ?? ""),
+    reach: optionalCount(row.reach),
+    comments: optionalCount(row.comments),
+    shares: optionalCount(row.shares),
+    saves: optionalCount(row.saves),
+    captured_at: row.captured_at || undefined,
+    entered_by: row.entered_by || undefined,
   };
 }
 
@@ -169,14 +178,35 @@ export async function updateContentItem(
 // ==========================================
 // Metrics: one row per snapshot, newest wins
 // ==========================================
+/** Input is checked by `checkInsight` first; blank optional counts stay blank in the sheet. */
 export async function saveInsight(
-  insight: ContentInsight,
+  input: Record<string, unknown> & { id: string },
   enteredBy: string
 ): Promise<ContentInsight> {
-  await appendRows("Content_Insights", [
-    { ...insight, captured_at: now(), source: "manual", entered_by: enteredBy },
-  ]);
-  return insight;
+  const count = (key: string) => (input[key] === undefined || input[key] === "" ? "" : Number(input[key]));
+  const record = {
+    id: input.id,
+    views_impressions: Number(input.views_impressions),
+    engagements: Number(input.engagements),
+    clicks: Number(input.clicks),
+    reach: count("reach"),
+    comments: count("comments"),
+    shares: count("shares"),
+    saves: count("saves"),
+    captured_at: (input.captured_at as string) || now().slice(0, 10),
+    source: "manual",
+    entered_by: enteredBy,
+  };
+  await appendRows("Content_Insights", [record]);
+  return toInsight(Object.fromEntries(Object.entries(record).map(([k, v]) => [k, String(v)])) as Row);
+}
+
+/** Every count logged for a post, newest first. */
+export async function getInsightHistory(contentId: string): Promise<ContentInsight[]> {
+  return (await loadAll()).Content_Insights.rows
+    .filter((row) => row.id === contentId)
+    .map(toInsight)
+    .sort((a, b) => (b.captured_at ?? "").slice(0, 10).localeCompare((a.captured_at ?? "").slice(0, 10)));
 }
 
 // ==========================================

@@ -69,6 +69,7 @@ export interface Member {
   permissions: Permission[];
   is_env_owner: boolean; // Listed in ADMIN_EMAILS, so it cannot be changed in the app.
   last_login_at: string;
+  avatar_url: string; // Google profile photo, or "" when there is none.
 }
 
 type SheetRow = Record<string, string>;
@@ -175,6 +176,7 @@ export function buildMembers(rows: SheetRow[], roles: Role[], adminEmails: strin
         permissions: status === "active" ? (role?.permissions ?? []) : [],
         is_env_owner: isEnvOwner,
         last_login_at: row.last_login_at ?? "",
+        avatar_url: safeAvatarUrl(row.avatar_url),
       };
     });
 
@@ -192,6 +194,7 @@ export function buildMembers(rows: SheetRow[], roles: Role[], adminEmails: strin
       permissions: owner.permissions,
       is_env_owner: true,
       last_login_at: "",
+      avatar_url: "",
     });
   }
   return members;
@@ -295,4 +298,25 @@ export function scopeWorkspace<
       ? workspace.channelSnapshots?.filter((s) => canAccessChannel(member, s.channel_id))
       : workspace.channelSnapshots && [],
   };
+}
+
+// Only Google's own photo host is shown, so nothing unexpected ends up in an <img src>.
+export function safeAvatarUrl(url: unknown): string {
+  if (typeof url !== "string" || !url) return "";
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" && parsed.hostname.endsWith(".googleusercontent.com") ? parsed.toString() : "";
+  } catch {
+    return "";
+  }
+}
+
+export const MAX_NAME_LENGTH = 80;
+
+/** Returns what is wrong with a display name, or null. */
+export function checkDisplayName(name: unknown): string | null {
+  if (typeof name !== "string" || !name.trim()) return "Enter your name.";
+  if (name.trim().length > MAX_NAME_LENGTH) return `Names can be up to ${MAX_NAME_LENGTH} characters.`;
+  if (/[\u0000-\u001f\u007f]/.test(name)) return "Names cannot contain line breaks or hidden characters.";
+  return null;
 }

@@ -48,6 +48,13 @@ export interface ContentInsight {
   views_impressions: number;
   engagements: number;
   clicks: number;
+  reach?: number;
+  comments?: number;
+  shares?: number;
+  saves?: number;
+  /** The day the numbers were counted, "YYYY-MM-DD" (older rows hold a full timestamp). */
+  captured_at?: string;
+  entered_by?: string;
 }
 
 export interface ContentWithInsight extends ContentItem {

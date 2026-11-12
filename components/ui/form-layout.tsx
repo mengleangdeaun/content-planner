@@ -1,6 +1,8 @@
 import * as React from "react";
+import { CircleHelp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 /** Taller controls on phones, for touch. */
 export const CONTROL_HEIGHT = "h-11 md:h-9";
@@ -25,18 +27,42 @@ interface FieldProps {
   htmlFor?: string;
   required?: boolean;
   hint?: string;
+  /** A longer explanation behind a (?) button next to the label, for fields too narrow for a hint. */
+  help?: React.ReactNode;
   children: React.ReactNode;
 }
 
-export function Field({ label, htmlFor, required, hint, children }: FieldProps) {
+// Opens on click or tap, unlike a hover tooltip, so it works on touch screens too.
+function FieldHelp({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <Popover>
+      <PopoverTrigger
+        type="button"
+        aria-label={`About ${label}`}
+        className="-my-1 inline-flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
+      >
+        <CircleHelp className="size-3.5" />
+      </PopoverTrigger>
+      <PopoverContent side="top" align="start" className="w-64 gap-1 p-3 text-xs leading-relaxed">
+        <p className="font-medium text-foreground">{label}</p>
+        <div className="text-muted-foreground">{children}</div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+export function Field({ label, htmlFor, required, hint, help, children }: FieldProps) {
   return (
     <div className="min-w-0 space-y-1.5">
-      <div className="flex items-baseline justify-between gap-2">
-        <Label htmlFor={htmlFor} className="text-sm font-medium text-foreground">
-          {label}
-          {required && <span aria-hidden className="text-destructive">*</span>}
-        </Label>
-        {hint && <span className="text-xs text-muted-foreground">{hint}</span>}
+      <div className="flex min-h-6 items-center justify-between gap-2">
+        <span className="flex min-w-0 items-center gap-1">
+          <Label htmlFor={htmlFor} className="text-sm font-medium whitespace-nowrap text-foreground">
+            {label}
+            {required && <span aria-hidden className="text-destructive">*</span>}
+          </Label>
+          {help && <FieldHelp label={label}>{help}</FieldHelp>}
+        </span>
+        {hint && <span className="truncate text-xs text-muted-foreground">{hint}</span>}
       </div>
       {children}
     </div>

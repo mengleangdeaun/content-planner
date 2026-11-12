@@ -1,93 +1,103 @@
 "use client";
 
 import React, { useState } from "react";
+import { FileText, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Plus } from "lucide-react";
-import { useWorkspace } from "@/context/workspace-context";
+import { DataPagination } from "@/components/shared/data-pagination";
+import { NoData, NoResults } from "@/components/shared/empty-state";
+import { PageHeader } from "@/components/shared/page-header";
 import { useAuth } from "@/context/auth-context";
+import { useWorkspace } from "@/context/workspace-context";
+import { clampPage, pageSlice } from "@/lib/pagination";
 import { useContentFilter } from "../hooks/use-content-filter";
+import { ContentBoard } from "./content-board";
+import { ContentList } from "./content-list";
 import { ContentStatsCards } from "./content-stats-cards";
 import { ContentToolbar } from "./content-toolbar";
-import { ContentTable } from "./content-table";
-import { ContentBoard } from "./content-board";
 
 export function ContentPipelineView() {
-  const {
-    items,
-    channels,
-    contentTypes,
-    campaigns,
-    openPostForm,
-    openDetailDrawer,
-    openMetricsModal,
-    onStatusChange,
-  } = useWorkspace();
+  const { items, channels, openPostForm } = useWorkspace();
   const { can, currentUser } = useAuth();
   const [layout, setLayout] = useState<"table" | "board">("table");
+  const filter = useContentFilter(items, channels, currentUser.email);
 
-  const filter = useContentFilter(items, currentUser.email);
+  // The page belongs to one set of filters: any filter change starts again at page 1.
+  const [paging, setPaging] = useState({ key: filter.filterKey, page: 1, size: 25 });
+  const total = filter.filteredItems.length;
+  const page = paging.key === filter.filterKey ? clampPage(paging.page, total, paging.size) : 1;
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">
-            Content Management
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Plan, organize, and monitor cross-platform marketing content across all publishing channels.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2 self-start sm:self-auto">
-          <div className="flex rounded-md border p-0.5" role="group" aria-label="Layout">
-            {(["table", "board"] as const).map((option) => (
-              <Button
-                key={option}
-                size="sm"
-                variant={layout === option ? "secondary" : "ghost"}
-                aria-pressed={layout === option}
-                onClick={() => setLayout(option)}
-                className="h-7 px-3 text-xs capitalize"
-              >
-                {option}
+      <PageHeader
+        title="Content Management"
+        description="Plan, organize, and monitor content across all publishing channels."
+        actions={
+          <>
+            <div className="flex rounded-md border p-0.5" role="group" aria-label="Layout">
+              {(["table", "board"] as const).map((option) => (
+                <Button
+                  key={option}
+                  size="sm"
+                  variant={layout === option ? "secondary" : "ghost"}
+                  aria-pressed={layout === option}
+                  onClick={() => setLayout(option)}
+                  className="h-8 px-3 text-xs capitalize"
+                >
+                  {option === "table" ? "List" : "Board"}
+                </Button>
+              ))}
+            </div>
+            {can("content.create") && (
+              <Button onClick={() => openPostForm({ mode: "create" })} className="gap-2 font-medium">
+                <Plus className="h-4 w-4" />
+                <span>New post</span>
               </Button>
-            ))}
-          </div>
-          {can("content.create") && (
-            <Button
-              onClick={() => openPostForm({ mode: "create" })}
-              size="default"
-              className="gap-2 font-medium"
-            >
-              <Plus className="h-4 w-4" />
-              <span>New Content Piece</span>
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {/* KPI Stats */}
-      <ContentStatsCards items={items.filter((item) => item.status !== "Archived")} />
-
-      {/* Filter Toolbar */}
-      <ContentToolbar
-        filter={filter}
-        channels={channels}
-        contentTypes={contentTypes}
-        campaigns={campaigns}
+            )}
+          </>
+        }
       />
+
+      <ContentStatsCards
+        items={items.filter((item) => item.status !== "Archived")}
+        statuses={filter.filters.statuses}
+        onStatusesChange={(statuses) => filter.setFilters({ statuses })}
+      />
+
+      <ContentToolbar filter={filter} />
 
       {layout === "board" ? (
         <ContentBoard items={filter.filteredItems} />
       ) : (
-        <ContentTable
-          items={filter.filteredItems}
-          onOpenDetailDrawer={openDetailDrawer}
-          onOpenMetricsModal={openMetricsModal}
-          onStatusChange={onStatusChange}
-        />
+        <div className="space-y-4">
+          <ContentList
+            items={pageSlice(filter.filteredItems, page, paging.size)}
+            empty={
+              items.some((item) => item.status !== "Archived") || filter.hasActiveFilters ? (
+                <NoResults onClear={filter.resetFilters} />
+              ) : (
+                <NoData
+                  icon={<FileText />}
+                  title="No posts yet"
+                  description="Plan your first post, and it will show up here."
+                  action={
+                    can("content.create") && (
+                      <Button onClick={() => openPostForm({ mode: "create" })} className="gap-2">
+                        <Plus className="h-4 w-4" /> New post
+                      </Button>
+                    )
+                  }
+                />
+              )
+            }
+          />
+          <DataPagination
+            page={page}
+            pageSize={paging.size}
+            total={total}
+            onPageChange={(next) => setPaging({ ...paging, key: filter.filterKey, page: next })}
+            onPageSizeChange={(size) => setPaging({ key: filter.filterKey, page: 1, size })}
+          />
+        </div>
       )}
     </div>
   );

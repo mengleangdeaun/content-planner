@@ -18,6 +18,8 @@ interface DatePickerProps {
   placeholder?: string;
   className?: string;
   disabled?: boolean;
+  /** date-fns format for the button text; shorter formats fit narrow columns. */
+  displayFormat?: string;
 }
 
 export function DatePicker({
@@ -26,6 +28,7 @@ export function DatePicker({
   placeholder = "Pick a date",
   className,
   disabled = false,
+  displayFormat = "PPP",
 }: DatePickerProps) {
   const [open, setOpen] = React.useState(false);
 
@@ -45,7 +48,7 @@ export function DatePicker({
           >
             <CalendarIcon className="mr-2 h-4 w-4 shrink-0 opacity-70" />
             <span className="truncate">
-              {date ? format(date, "PPP") : placeholder}
+              {date ? format(date, displayFormat) : placeholder}
             </span>
           </Button>
         }

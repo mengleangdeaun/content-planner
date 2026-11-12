@@ -55,7 +55,7 @@ ADMIN_EMAILS=admin@gmail.com`;
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-2xl max-h-[88vh] flex flex-col p-6 overflow-hidden">
+      <DialogContent className="sm:max-w-2xl max-h-[88vh] flex flex-col overflow-hidden">
         {/* Fixed Header */}
         <DialogHeader className="shrink-0 pb-2">
           <div className="flex items-center gap-3">
@@ -74,7 +74,7 @@ ADMIN_EMAILS=admin@gmail.com`;
         </DialogHeader>
 
         {/* Scrollable Content Container (Guaranteed no horizontal overflow) */}
-        <div className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden pr-2 space-y-4 pt-1 text-sm">
+        <div className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden space-y-4 pt-1 text-sm">
           {/* One-Click Automation Banner */}
           <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3.5 space-y-2 min-w-0">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">

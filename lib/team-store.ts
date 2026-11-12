@@ -9,7 +9,10 @@ import {
   buildMembers,
   canGrant,
   canGrantChannels,
+  checkDisplayName,
+  MAX_NAME_LENGTH,
   mergeRoles,
+  safeAvatarUrl,
   normalizeEmail,
   wouldRemoveLastOwner,
 } from "./auth/permissions";
@@ -113,12 +116,57 @@ export async function updateMember(
   });
 }
 
-export async function recordLogin(member: Member, googleName?: string): Promise<void> {
-  if (member.id.startsWith("env:")) return; // ADMIN_EMAILS owners may have no sheet row.
+// The photo column arrives with "Upgrade Sheet Structure"; until then, sign-in and names still save.
+async function photoField(avatar: string): Promise<string | undefined> {
+  if (!avatar) return undefined;
+  return (await loadAll()).Team_Members.headers.includes("avatar_url") ? avatar : undefined;
+}
+
+// ADMIN_EMAILS owners may have no sheet row; this gives them one so their name and photo have a home.
+async function addEnvOwnerRow(member: Member, fields: { name: string; last_login_at?: string; avatar_url?: string }) {
+  await appendRows("Team_Members", [
+    {
+      id: newId("MEM"),
+      email: member.email,
+      role_id: OWNER_ROLE_ID,
+      channel_ids: "",
+      status: "active",
+      invited_by: "ADMIN_EMAILS",
+      ...fields,
+    },
+  ]);
+}
+
+/**
+ * Saves the sign-in time and the Google photo. Google's name only fills an empty name, so a name
+ * someone set themselves is never overwritten.
+ */
+export async function recordLogin(member: Member, googleName?: string, picture?: string): Promise<void> {
+  const now = new Date().toISOString();
+  const avatar = await photoField(safeAvatarUrl(picture));
+  const name = googleName?.trim().slice(0, MAX_NAME_LENGTH) ?? "";
+
+  if (member.id.startsWith("env:")) {
+    await addEnvOwnerRow(member, { name, last_login_at: now, avatar_url: avatar });
+    return;
+  }
   await patchRow("Team_Members", member.id, {
-    last_login_at: new Date().toISOString(),
-    name: member.name === member.email ? googleName : undefined,
+    last_login_at: now,
+    avatar_url: avatar,
+    name: member.name === member.email && name ? name : undefined,
   });
+}
+
+/** Anyone signed in may change their own name. Admin rules do not apply to your own row. */
+export async function updateOwnName(member: Member, input: unknown): Promise<void> {
+  const problem = checkDisplayName(input);
+  if (problem) throw new SheetError(problem, 400);
+  const name = (input as string).trim();
+  if (member.id.startsWith("env:")) {
+    await addEnvOwnerRow(member, { name });
+    return;
+  }
+  await patchRow("Team_Members", member.id, { name });
 }
 
 export async function saveRole(

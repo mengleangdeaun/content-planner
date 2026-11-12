@@ -1,18 +1,15 @@
 "use client";
 
+import { useConfirm } from "@/components/shared/confirm-dialog";
 import React, { useCallback, useEffect, useState } from "react";
 import { Plus, Edit } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/shared/page-header";
+import { PersonAvatar } from "@/components/shared/person-avatar";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { ResponsiveModal } from "@/components/ui/responsive-modal";
+import { FormActions, FormError } from "@/components/ui/form-layout";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -28,6 +25,7 @@ const errorText = (err: unknown, fallback: string) => (err instanceof Error ? er
 export function TeamView() {
   const { channels, showToast } = useWorkspace();
   const { currentUser } = useAuth();
+  const confirm = useConfirm();
   const [members, setMembers] = useState<Member[] | null>(null);
   const [roles, setRoles] = useState<Role[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -59,7 +57,15 @@ export function TeamView() {
 
   const toggleActive = async (member: Member) => {
     const status = member.status === "active" ? "inactive" : "active";
-    if (status === "inactive" && !confirm(`Remove access for ${member.email}?`)) return;
+    if (
+      status === "inactive" &&
+      !(await confirm({
+        title: `Remove access for ${member.name}?`,
+        description: `${member.email} can no longer sign in. Their posts and tasks stay as they are, and you can restore access later.`,
+        confirmLabel: "Remove access",
+      }))
+    )
+      return;
     try {
       await saveMember({ id: member.id, status });
       showToast(status === "active" ? "Access restored" : "Access removed");
@@ -71,18 +77,16 @@ export function TeamView() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">Team</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Add people, choose their role, and limit which channels they can work on.
-          </p>
-        </div>
-        <Button onClick={() => setEditing("new")} className="gap-2 self-start font-medium sm:self-auto">
-          <Plus className="h-4 w-4" />
-          <span>Add Member</span>
-        </Button>
-      </div>
+      <PageHeader
+        title="Team"
+        description="Add people, choose their role, and limit which channels they can work on."
+        actions={
+          <Button onClick={() => setEditing("new")} className="gap-2 font-medium">
+            <Plus className="h-4 w-4" />
+            <span>Add Member</span>
+          </Button>
+        }
+      />
 
       {error && (
         <div role="alert" className="rounded-md border border-destructive/20 bg-destructive/10 p-3 text-sm font-medium text-destructive">
@@ -115,8 +119,13 @@ export function TeamView() {
               return (
                 <TableRow key={member.id}>
                   <TableCell>
-                    <span className="block text-sm font-semibold text-foreground">{member.name}</span>
-                    <span className="text-xs text-muted-foreground">{member.email}</span>
+                    <span className="flex items-center gap-3">
+                      <PersonAvatar name={member.name} avatarUrl={member.avatar_url} size="md" />
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-semibold text-foreground">{member.name}</span>
+                        <span className="block truncate text-xs text-muted-foreground">{member.email}</span>
+                      </span>
+                    </span>
                   </TableCell>
                   <TableCell>
                     <Badge variant="outline" className="text-xs font-medium">
@@ -235,106 +244,95 @@ function MemberDialog({
   };
 
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="flex max-h-[90vh] flex-col overflow-hidden p-6 sm:max-w-md">
-        <DialogHeader className="shrink-0">
-          <DialogTitle className="text-lg font-semibold tracking-tight">
-            {member ? "Edit Member" : "Add Member"}
-          </DialogTitle>
-          <DialogDescription className="text-sm text-muted-foreground">
-            {member ? member.email : "They get access the next time they sign in with this Google account."}
-          </DialogDescription>
-        </DialogHeader>
+    <ResponsiveModal
+      open
+      onClose={onClose}
+      title={member ? "Edit Member" : "Add Member"}
+      description={member ? member.email : "They get access the next time they sign in with this Google account."}
+      footer={
+        <FormActions>
+          <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
+            Cancel
+          </Button>
+          <Button type="submit" form="member-form" disabled={submitting}>
+            {submitting ? "Saving..." : "Save Member"}
+          </Button>
+        </FormActions>
+      }
+    >
+      <form id="member-form" onSubmit={handleSubmit} className="space-y-4">
+        {error && <FormError>{error}</FormError>}
 
-        {error && (
-          <div role="alert" className="shrink-0 rounded-md border border-destructive/20 bg-destructive/10 p-3 text-sm font-medium text-destructive">
-            {error}
+        {!member && (
+          <div className="space-y-1.5">
+            <Label htmlFor="memberEmail">Google email *</Label>
+            <Input
+              id="memberEmail"
+              type="email"
+              required
+              placeholder="name@gmail.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          <div className="min-w-0 flex-1 space-y-4 overflow-y-auto pr-2 pt-1">
-            {!member && (
-              <div className="space-y-1.5">
-                <Label htmlFor="memberEmail">Google email *</Label>
-                <Input
-                  id="memberEmail"
-                  type="email"
-                  required
-                  placeholder="name@gmail.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
-              </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="memberName">Name</Label>
+          <Input
+            id="memberName"
+            placeholder="Filled in from Google if left blank"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Role</Label>
+          <Select
+            value={roleId}
+            onValueChange={(value) => value && setRoleId(value)}
+            items={roles.map((role) => ({ value: role.id, label: role.name }))}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {roles.map((role) => (
+                <SelectItem key={role.id} value={role.id}>
+                  {role.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {isOwnerRole ? (
+          <p className="text-xs text-muted-foreground">Owners can always access every channel.</p>
+        ) : (
+          <fieldset className="space-y-2">
+            <legend className="text-sm font-medium">Channels</legend>
+            {!channelLimited && (
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox checked={allChannels} onCheckedChange={(checked) => setAllChannels(checked)} />
+                <span>All channels, including future ones</span>
+              </label>
             )}
-
-            <div className="space-y-1.5">
-              <Label htmlFor="memberName">Name</Label>
-              <Input
-                id="memberName"
-                placeholder="Filled in from Google if left blank"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Role</Label>
-              <Select
-                value={roleId}
-                onValueChange={(value) => value && setRoleId(value)}
-                items={roles.map((role) => ({ value: role.id, label: role.name }))}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {roles.map((role) => (
-                    <SelectItem key={role.id} value={role.id}>
-                      {role.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {isOwnerRole ? (
-              <p className="text-xs text-muted-foreground">Owners can always access every channel.</p>
-            ) : (
-              <fieldset className="space-y-2">
-                <legend className="text-sm font-medium">Channels</legend>
-                {!channelLimited && (
-                  <label className="flex items-center gap-2 text-sm">
-                    <Checkbox checked={allChannels} onCheckedChange={(checked) => setAllChannels(checked)} />
-                    <span>All channels, including future ones</span>
-                  </label>
-                )}
-                {!allChannels &&
-                  channels.map((channel) => (
-                    <label key={channel.id} className="flex items-center gap-2 text-sm">
-                      <Checkbox
-                        checked={channelIds.includes(channel.id)}
-                        onCheckedChange={(checked) => toggleChannel(channel.id, checked)}
-                      />
-                      <span>
-                        {channel.platform} — {channel.account_name}
-                      </span>
-                    </label>
-                  ))}
-              </fieldset>
-            )}
-          </div>
-
-          <DialogFooter className="mt-2 shrink-0 border-t pt-3">
-            <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={submitting}>
-              {submitting ? "Saving..." : "Save Member"}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+            {!allChannels &&
+              channels.map((channel) => (
+                <label key={channel.id} className="flex items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={channelIds.includes(channel.id)}
+                    onCheckedChange={(checked) => toggleChannel(channel.id, checked)}
+                  />
+                  <span>
+                    {channel.platform} — {channel.account_name}
+                  </span>
+                </label>
+              ))}
+          </fieldset>
+        )}
+      </form>
+    </ResponsiveModal>
   );
 }

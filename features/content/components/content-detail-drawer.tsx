@@ -23,7 +23,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { formatDisplayDate } from "@/lib/date-utils";
 import { ContentWithInsight } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { isOverdue, taskProgress } from "@/lib/workflow";
+import { NO_TASKS, isOverdue } from "@/lib/workflow";
 import { ContentFormatBadge } from "./content-format-badge";
 import { ContentStatusBadge } from "./content-status-badge";
 import { ContentStatusSelect } from "./content-status-select";
@@ -78,7 +78,7 @@ export function ContentDetailDrawer() {
     showToast,
     people,
     campaigns,
-    tasks,
+    taskProgressById,
   } = useWorkspace();
   const { can } = useAuth();
   const isMobile = useIsMobile();
@@ -90,7 +90,7 @@ export function ContentDetailDrawer() {
     email ? (people.find((p) => p.email === email)?.name ?? email) : "Unassigned";
   const campaign = campaigns.find((c) => c.id === item.campaign_id);
   const overdue = isOverdue(item, format(new Date(), "yyyy-MM-dd"));
-  const progress = taskProgress(tasks.filter((task) => task.content_id === item.id));
+  const progress = taskProgressById.get(item.id) ?? NO_TASKS;
   // Drag-and-drop does not work on touch screens, so phones reschedule from here.
   const canRescheduleHere = isMobile && can("content.edit") && item.status !== "Published";
 

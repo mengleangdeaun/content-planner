@@ -13,12 +13,14 @@ import {
   SidebarMenuItem,
   SidebarMenuButton,
   SidebarSeparator,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import {
-  CalendarDays,
   CalendarRange,
+  ChevronsUpDown,
   Flag,
+  UserRound,
   LayoutDashboard,
   Layers,
   ListChecks,
@@ -33,6 +35,17 @@ import {
 import { useWorkspace } from "@/context/workspace-context";
 import { useAuth } from "@/context/auth-context";
 import { UpgradeSheetButton } from "@/features/integrations";
+import { ProfileDialog } from "@/features/team/components/profile-dialog";
+import { PersonAvatar } from "@/components/shared/person-avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 export type NavView =
   | "pipeline"
@@ -60,6 +73,8 @@ export function AppSidebar({
 }: AppSidebarProps) {
   const workspace = useWorkspace();
   const { currentUser, can, signOut } = useAuth();
+  const { isMobile, state } = useSidebar();
+  const [isProfileOpen, setIsProfileOpen] = React.useState(false);
 
   const isSyncing = props.isSyncing ?? workspace.isSyncing;
   const onSync = props.onSync ?? workspace.syncNow;
@@ -67,20 +82,19 @@ export function AppSidebar({
   return (
     <Sidebar variant="sidebar" collapsible="icon">
       {/* Workspace Brand Header */}
-      <SidebarHeader className="border-b px-4 py-3">
-        <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground font-semibold shadow-xs">
-            <CalendarDays className="h-4 w-4" />
-          </div>
-          <div className="flex flex-col truncate">
-            <span className="font-semibold text-sm tracking-tight text-foreground">
-              Marketing Ops
-            </span>
-            <span className="text-[11px] text-muted-foreground truncate">
-              Content Planner & Analytics
-            </span>
-          </div>
-        </div>
+      <SidebarHeader className="h-12 border-b px-3 flex items-center justify-center">
+        {/* Expanded: landscape logo */}
+        <img
+          src="/assets/logo-landscape.svg"
+          alt="SCC Group"
+          className="h-7 w-auto object-contain group-data-[collapsible=icon]:hidden"
+        />
+        {/* Collapsed: square logo */}
+        <img
+          src="/assets/logo-square.svg"
+          alt="SCC Group"
+          className="hidden h-7 w-7 object-contain group-data-[collapsible=icon]:block"
+        />
       </SidebarHeader>
 
       <SidebarContent>
@@ -234,41 +248,111 @@ export function AppSidebar({
       </SidebarContent>
 
       {/* Sidebar Footer */}
-      <SidebarFooter className="border-t p-3 space-y-2.5">
-        {/* Sync */}
-        <div className="flex items-center justify-end gap-1.5 px-1">
+      <SidebarFooter className="border-t p-2 gap-1.5">
+        {/* Utilities: Sync & Upgrade Schema */}
+        <div className="flex items-center gap-1 px-1 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
           <Button
             variant="ghost"
             size="sm"
             onClick={onSync}
             disabled={isSyncing}
-            className="h-6 px-1.5 text-xs text-muted-foreground gap-1"
+            className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground gap-1.5 flex-1 justify-start group-data-[collapsible=icon]:flex-none group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:p-0 group-data-[collapsible=icon]:justify-center"
             title="Refresh cache from Google Sheets"
           >
-            <RefreshCw className={`h-3 w-3 ${isSyncing ? "animate-spin [animation-duration:650ms]" : ""}`} />
-            <span className="text-[11px]">Sync</span>
+            <RefreshCw className={`h-3.5 w-3.5 shrink-0 ${isSyncing ? "animate-spin [animation-duration:650ms]" : ""}`} />
+            <span className="text-[11px] font-medium group-data-[collapsible=icon]:hidden">
+              {isSyncing ? "Syncing..." : "Sync Sheets"}
+            </span>
           </Button>
+
+          {can("system.manage") && (
+            <div className="group-data-[collapsible=icon]:hidden">
+              <UpgradeSheetButton size="sm" className="h-7 text-[11px] px-2" label="Upgrade Schema" />
+            </div>
+          )}
         </div>
 
-        <UpgradeSheetButton className="w-full justify-center h-7 text-[11px]" />
-
-        {/* Signed-in Account */}
-        <div className="flex items-center justify-between gap-2 px-1">
-          <div className="min-w-0 group-data-[collapsible=icon]:hidden">
-            <span className="block truncate text-xs font-medium text-foreground">{currentUser.name}</span>
-            <span className="block truncate text-[11px] text-muted-foreground">{currentUser.role_name}</span>
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={signOut}
-            className="h-7 w-7 shrink-0 p-0 text-muted-foreground"
-            title="Sign out"
-            aria-label="Sign out"
-          >
-            <LogOut className="h-3.5 w-3.5" />
-          </Button>
-        </div>
+        {/* Signed-in User Block */}
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <SidebarMenuButton
+                    size="lg"
+                    tooltip={currentUser.name}
+                    className="data-[popup-open]:bg-sidebar-accent data-[popup-open]:text-sidebar-accent-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                  />
+                }
+                aria-label={`Account menu for ${currentUser.name}`}
+              >
+                <PersonAvatar
+                  name={currentUser.name}
+                  avatarUrl={currentUser.avatar_url}
+                  size="md"
+                  className="rounded-lg shrink-0"
+                />
+                <div className="grid flex-1 min-w-0 text-left text-sm leading-tight group-data-[collapsible=icon]:hidden">
+                  <span className="truncate font-semibold text-xs text-foreground">
+                    {currentUser.name}
+                  </span>
+                  <span className="truncate text-[11px] text-muted-foreground">
+                    {currentUser.role_name || currentUser.email}
+                  </span>
+                </div>
+                <ChevronsUpDown className="ml-auto size-4 shrink-0 text-muted-foreground group-data-[collapsible=icon]:hidden" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                side={isMobile ? "bottom" : state === "collapsed" ? "right" : "top"}
+                align={state === "collapsed" ? "end" : "start"}
+                sideOffset={8}
+                className="w-64 min-w-56 p-1.5"
+              >
+                {/* User info in dropdown header */}
+                <DropdownMenuGroup>
+                  <div className="flex items-center gap-2.5 px-2 py-2 text-left">
+                    <PersonAvatar
+                      name={currentUser.name}
+                      avatarUrl={currentUser.avatar_url}
+                      size="md"
+                      className="rounded-lg shrink-0"
+                    />
+                    <div className="grid flex-1 min-w-0 leading-tight">
+                      <span className="truncate font-semibold text-xs text-foreground">
+                        {currentUser.name}
+                      </span>
+                      <span className="truncate text-[11px] text-muted-foreground">
+                        {currentUser.email}
+                      </span>
+                      <span className="truncate text-[10px] font-medium text-primary mt-0.5">
+                        {currentUser.role_name}
+                      </span>
+                    </div>
+                  </div>
+                </DropdownMenuGroup>
+                <DropdownMenuSeparator />
+                <DropdownMenuGroup>
+                  <DropdownMenuItem onClick={() => setIsProfileOpen(true)} className="gap-2 text-xs">
+                    <UserRound className="size-3.5" />
+                    <span>Edit profile</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={onSync} disabled={isSyncing} className="gap-2 text-xs">
+                    <RefreshCw className={`size-3.5 ${isSyncing ? "animate-spin [animation-duration:650ms]" : ""}`} />
+                    <span>{isSyncing ? "Syncing..." : "Sync workspace"}</span>
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
+                <DropdownMenuSeparator />
+                <DropdownMenuGroup>
+                  <DropdownMenuItem onClick={signOut} className="gap-2 text-xs text-destructive focus:text-destructive">
+                    <LogOut className="size-3.5" />
+                    <span>Sign out</span>
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </SidebarMenuItem>
+        </SidebarMenu>
+        {isProfileOpen && <ProfileDialog onClose={() => setIsProfileOpen(false)} />}
       </SidebarFooter>
     </Sidebar>
   );

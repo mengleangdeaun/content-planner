@@ -15,7 +15,6 @@ import { HelpCircle } from "lucide-react";
 import { NavView } from "./app-sidebar";
 import { useWorkspace } from "@/context/workspace-context";
 import { useAuth } from "@/context/auth-context";
-import { UpgradeSheetButton } from "@/features/integrations";
 
 interface AppHeaderProps {
   activeView: NavView;
@@ -46,10 +45,10 @@ export function AppHeader({
   const current = VIEW_TITLES[activeView] || { section: "Workspace", title: "Dashboard" };
 
   return (
-    <header className="flex h-12 shrink-0 items-center justify-between gap-2 border-b bg-background px-4">
+    <header className="sticky top-0 z-30 flex h-12 shrink-0 items-center justify-between gap-2 border-b bg-background px-4">
       <div className="flex items-center gap-2">
         <SidebarTrigger className="-ml-1" />
-        <Separator orientation="vertical" className="mr-2 h-4" />
+        <Separator orientation="vertical" className="mr-2 h-4 self-center" />
         <Breadcrumb>
           <BreadcrumbList className="text-xs">
             <BreadcrumbItem className="hidden md:block">
@@ -66,9 +65,6 @@ export function AppHeader({
       </div>
 
       <div className="flex items-center gap-2">
-        {/* Upgrade Sheet Structure Button */}
-        <UpgradeSheetButton />
-
         {/* GCP Guide Modal Trigger */}
         {can("system.manage") && (
           <Button

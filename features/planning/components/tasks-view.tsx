@@ -2,33 +2,55 @@
 
 import React, { useMemo, useState } from "react";
 import { format } from "date-fns";
-import { Plus, Search } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Circle, ListChecks, Plus, Timer } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { CONTROL_HEIGHT, Field, FormActions, FormError } from "@/components/ui/form-layout";
 import { Input } from "@/components/ui/input";
 import { ResponsiveDatePicker } from "@/components/ui/responsive-date-picker";
 import { ResponsiveModal } from "@/components/ui/responsive-modal";
 import { ResponsiveSelect } from "@/components/ui/responsive-select";
+import { DataPagination } from "@/components/shared/data-pagination";
+import { FilterBar, FilterField, listChips } from "@/components/shared/filter-bar";
+import { NoData, NoResults } from "@/components/shared/empty-state";
+import { PageHeader } from "@/components/shared/page-header";
+import { SearchableMultiSelect } from "@/components/shared/searchable-multi-select";
+import { SearchableSelect } from "@/components/shared/searchable-select";
+import { StatsCard, StatsGrid } from "@/components/shared/stats-card";
 import { useAuth } from "@/context/auth-context";
 import { useWorkspace } from "@/context/workspace-context";
+import { PersonPicker } from "@/features/team/components/person-picker";
 import { resolveChannelId } from "@/lib/auth/permissions";
-import { cn } from "@/lib/utils";
-import { TASK_STATUSES, isTaskOverdue, taskProgress } from "@/lib/workflow";
-import { TASK_GRID, TaskRow } from "./task-row";
+import { clampPage, pageSlice } from "@/lib/pagination";
+import {
+  EMPTY_TASK_FILTERS,
+  TASK_SORTS,
+  TaskFilters,
+  TaskSort,
+  UNASSIGNED,
+  filterTasks,
+  hasActiveTaskFilters,
+  sortTasks,
+} from "@/lib/task-filter";
+import { TASK_STATUSES, isTaskOverdue } from "@/lib/workflow";
+import { TaskList } from "./task-list";
 
-const ALL = "all";
-const NONE = "none";
+const LIST_KEYS = ["statuses", "assignees", "channelIds"] as const;
+type ListKey = (typeof LIST_KEYS)[number];
+const LIST_LABELS: Record<ListKey, string> = { statuses: "Statuses", assignees: "Assignees", channelIds: "Channels" };
+
+const STATUS_CARDS = [
+  { value: "open", label: "To Do", icon: <Circle /> },
+  { value: "in_progress", label: "In Progress", icon: <Timer /> },
+  { value: "done", label: "Done", icon: <CheckCircle2 /> },
+];
 
 export function TasksView() {
   const { tasks, items, channels, people } = useWorkspace();
   const { can, currentUser } = useAuth();
-  const [search, setSearch] = useState("");
-  const [status, setStatus] = useState(ALL);
-  const [assignee, setAssignee] = useState(ALL);
-  const [channelId, setChannelId] = useState(ALL);
-  const [myTasks, setMyTasks] = useState(false);
+  const [filters, setAllFilters] = useState<TaskFilters>(EMPTY_TASK_FILTERS);
+  const [sort, setSort] = useState<TaskSort>("due");
   const [isAdding, setIsAdding] = useState(false);
+  const setFilters = (patch: Partial<TaskFilters>) => setAllFilters((current) => ({ ...current, ...patch }));
 
   const today = format(new Date(), "yyyy-MM-dd");
 
@@ -42,140 +64,137 @@ export function TasksView() {
     [tasks, items]
   );
 
-  const visible = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return rows
-      .filter(({ task, post }) => {
-        if (status !== ALL && task.status !== status) return false;
-        if (assignee !== ALL && (task.assignee_email || NONE) !== assignee) return false;
-        if (channelId !== ALL && resolveChannelId(post, channels) !== channelId) return false;
-        if (myTasks && task.assignee_email !== currentUser.email) return false;
-        return !query || task.title.toLowerCase().includes(query) || post.title.toLowerCase().includes(query);
-      })
-      .sort((a, b) => {
-        const finished = Number(a.task.status === "done") - Number(b.task.status === "done");
-        if (finished !== 0) return finished;
-        // Tasks with no due date go last.
-        return (a.task.due_date || "9999").localeCompare(b.task.due_date || "9999");
-      });
-  }, [rows, search, status, assignee, channelId, myTasks, channels, currentUser.email]);
+  const visible = useMemo(
+    () =>
+      sortTasks(
+        filterTasks(rows, filters, {
+          channelIdOf: (row) => resolveChannelId(row.post, channels),
+          today,
+          currentEmail: currentUser.email,
+        }),
+        sort
+      ),
+    [rows, filters, sort, channels, today, currentUser.email]
+  );
+
+  // The page belongs to one set of filters and one sort: any change starts again at page 1.
+  const listKey = JSON.stringify([filters, sort]);
+  const [paging, setPaging] = useState({ key: listKey, page: 1, size: 25 });
+  const page = paging.key === listKey ? clampPage(paging.page, visible.length, paging.size) : 1;
 
   const all = rows.map((row) => row.task);
-  const progress = taskProgress(all);
-  const stats = [
-    { label: "To Do", value: all.filter((t) => t.status === "open").length },
-    { label: "In Progress", value: all.filter((t) => t.status === "in_progress").length },
-    { label: "Done", value: progress.done },
-    { label: "Overdue", value: all.filter((t) => isTaskOverdue(t, today)).length, alert: true },
-  ];
+  const overdueCount = all.filter((t) => isTaskOverdue(t, today)).length;
+  const filtersActive = hasActiveTaskFilters(filters);
+  const listOptions: Record<ListKey, { value: string; label: string }[]> = {
+    statuses: [...TASK_STATUSES],
+    assignees: [{ value: UNASSIGNED, label: "Unassigned" }, ...people.map((p) => ({ value: p.email, label: p.name }))],
+    channelIds: channels.map((c) => ({ value: c.id, label: `${c.platform} — ${c.account_name}` })),
+  };
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">Tasks</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Track the work behind every post, across all channels.</p>
-        </div>
-        {can("tasks.manage") && (
-          <Button onClick={() => setIsAdding(true)} className="gap-2 self-start font-medium sm:self-auto">
-            <Plus className="h-4 w-4" />
-            <span>New Task</span>
-          </Button>
-        )}
-      </div>
+      <PageHeader
+        title="Tasks"
+        description="Track the work behind every post, across all channels."
+        actions={
+          can("tasks.manage") && (
+            <Button onClick={() => setIsAdding(true)} className="gap-2 font-medium">
+              <Plus className="h-4 w-4" />
+              <span>New Task</span>
+            </Button>
+          )
+        }
+      />
 
-      <Card className="space-y-4 p-4">
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-          {stats.map((stat) => (
-            <div key={stat.label}>
-              <p className="text-xs text-muted-foreground">{stat.label}</p>
-              <p className={cn("text-2xl font-semibold text-foreground", stat.alert && stat.value > 0 && "text-destructive")}>
-                {stat.value}
-              </p>
-            </div>
-          ))}
-        </div>
-        <div className="space-y-1">
-          <div className="flex justify-between text-xs text-muted-foreground">
-            <span>{progress.done} of {progress.total} done</span>
-            <span>{progress.percent}%</span>
-          </div>
-          <div
-            role="progressbar"
-            aria-label="Overall task progress"
-            aria-valuenow={progress.percent}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            className="h-1.5 overflow-hidden rounded-full bg-muted"
-          >
-            <div className="h-full bg-primary" style={{ width: `${progress.percent}%` }} />
-          </div>
-        </div>
-      </Card>
+      {/* Each card is a shortcut for a filter; clicking the active card again clears it. */}
+      <StatsGrid columns={4}>
+        {STATUS_CARDS.map((card) => {
+          const active = filters.statuses.length === 1 && filters.statuses[0] === card.value && !filters.overdueOnly;
+          return (
+            <StatsCard
+              key={card.value}
+              label={card.label}
+              value={all.filter((t) => t.status === card.value).length}
+              icon={card.icon}
+              active={active}
+              onClick={() => setFilters({ statuses: active ? [] : [card.value], overdueOnly: false })}
+            />
+          );
+        })}
+        <StatsCard
+          label="Overdue"
+          value={overdueCount}
+          icon={<AlertTriangle />}
+          tone={overdueCount > 0 ? "danger" : "default"}
+          active={filters.overdueOnly}
+          onClick={() => setFilters({ overdueOnly: !filters.overdueOnly, statuses: [] })}
+        />
+      </StatsGrid>
 
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_9rem_11rem_11rem_auto]">
-        <div className="relative sm:col-span-2 lg:col-span-1">
-          <Search className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            type="search"
-            aria-label="Search tasks"
-            placeholder="Search tasks or posts..."
-            value={search}
-            enterKeyHint="search"
-            onChange={(e) => setSearch(e.target.value)}
-            className={cn("pl-9", CONTROL_HEIGHT)}
-          />
-        </div>
-        <ResponsiveSelect
-          aria-label="Filter by status"
-          value={status}
-          onValueChange={setStatus}
-          options={[{ value: ALL, label: "All statuses" }, ...TASK_STATUSES]}
-        />
-        <ResponsiveSelect
-          aria-label="Filter by assignee"
-          value={assignee}
-          onValueChange={setAssignee}
-          options={[
-            { value: ALL, label: "All assignees" },
-            { value: NONE, label: "Unassigned" },
-            ...people.map((p) => ({ value: p.email, label: p.name })),
-          ]}
-        />
-        <ResponsiveSelect
-          aria-label="Filter by channel"
-          value={channelId}
-          onValueChange={setChannelId}
-          options={[
-            { value: ALL, label: "All channels" },
-            ...channels.map((c) => ({ value: c.id, label: `${c.platform} — ${c.account_name}` })),
-          ]}
-        />
-        <Button
-          variant={myTasks ? "secondary" : "outline"}
-          aria-pressed={myTasks}
-          onClick={() => setMyTasks(!myTasks)}
-          className={CONTROL_HEIGHT}
-        >
-          My Tasks
-        </Button>
-      </div>
-
-      <div className="space-y-2">
-        <div className={cn("hidden gap-2 px-3 text-xs font-medium text-muted-foreground md:grid", TASK_GRID)}>
-          <span>Task</span>
-          <span>Status</span>
-          <span>Assignee</span>
-          <span>Due</span>
-        </div>
-        {visible.map(({ task, post }) => (
-          <TaskRow key={task.id} task={task} post={post} />
+      <FilterBar
+        search={filters.search}
+        onSearchChange={(search) => setFilters({ search })}
+        searchPlaceholder="Search tasks or posts..."
+        toggles={[
+          { label: "My tasks", pressed: filters.myTasks, onToggle: () => setFilters({ myTasks: !filters.myTasks }) },
+          { label: "Overdue", pressed: filters.overdueOnly, onToggle: () => setFilters({ overdueOnly: !filters.overdueOnly }) },
+        ]}
+        chips={listChips(LIST_KEYS, filters, listOptions, LIST_LABELS, (key) => setFilters({ [key]: [] }))}
+        onClearPanel={() => setFilters({ statuses: [], assignees: [], channelIds: [] })}
+        hasActiveFilters={filtersActive}
+        onReset={() => setAllFilters(EMPTY_TASK_FILTERS)}
+        panel={LIST_KEYS.map((key) => (
+          <FilterField key={key} label={LIST_LABELS[key]}>
+            <SearchableMultiSelect
+              label={LIST_LABELS[key]}
+              value={filters[key]}
+              onValueChange={(value) => setFilters({ [key]: value })}
+              options={listOptions[key]}
+            />
+          </FilterField>
         ))}
-        {visible.length === 0 && (
-          <Card className="p-10 text-center text-sm text-muted-foreground">
-            {rows.length === 0 ? "No tasks yet. Add one here or from a post." : "No tasks match these filters."}
-          </Card>
-        )}
+        trailing={
+          <div className="w-48">
+            <ResponsiveSelect
+              aria-label="Sort tasks"
+              value={sort}
+              onValueChange={(value) => setSort(value as TaskSort)}
+              className="h-10 w-full md:h-8"
+              options={TASK_SORTS.map((s) => ({ value: s.value, label: `Sort: ${s.label}` }))}
+            />
+          </div>
+        }
+      />
+
+      <div className="space-y-4">
+        <TaskList
+          rows={pageSlice(visible, page, paging.size)}
+          empty={
+            rows.length > 0 || filtersActive ? (
+              <NoResults onClear={() => setAllFilters(EMPTY_TASK_FILTERS)} />
+            ) : (
+              <NoData
+                icon={<ListChecks />}
+                title="No tasks yet"
+                description="Break a post into tasks to track the work behind it."
+                action={
+                  can("tasks.manage") && (
+                    <Button onClick={() => setIsAdding(true)} className="gap-2">
+                      <Plus className="h-4 w-4" /> New task
+                    </Button>
+                  )
+                }
+              />
+            )
+          }
+        />
+        <DataPagination
+          page={page}
+          pageSize={paging.size}
+          total={visible.length}
+          onPageChange={(next) => setPaging({ ...paging, key: listKey, page: next })}
+          onPageSizeChange={(size) => setPaging({ key: listKey, page: 1, size })}
+        />
       </div>
 
       {isAdding && <NewTaskDialog onClose={() => setIsAdding(false)} />}
@@ -184,11 +203,11 @@ export function TasksView() {
 }
 
 function NewTaskDialog({ onClose }: { onClose: () => void }) {
-  const { items, people, onAddTask, showToast } = useWorkspace();
+  const { items, onAddTask, showToast } = useWorkspace();
   const posts = items.filter((item) => item.status !== "Archived" && item.status !== "Published");
   const [contentId, setContentId] = useState(posts[0]?.id ?? "");
   const [title, setTitle] = useState("");
-  const [assignee, setAssignee] = useState(NONE);
+  const [assignee, setAssignee] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -199,12 +218,7 @@ function NewTaskDialog({ onClose }: { onClose: () => void }) {
     if (!contentId) return setError("Choose a post for this task.");
     try {
       setIsSaving(true);
-      await onAddTask({
-        content_id: contentId,
-        title,
-        assignee_email: assignee === NONE ? "" : assignee,
-        due_date: dueDate,
-      });
+      await onAddTask({ content_id: contentId, title, assignee_email: assignee, due_date: dueDate });
       showToast("Task added");
       onClose();
     } catch (err: unknown) {
@@ -243,21 +257,17 @@ function NewTaskDialog({ onClose }: { onClose: () => void }) {
           />
         </Field>
         <Field label="Post" htmlFor="task-post" required>
-          <ResponsiveSelect
+          <SearchableSelect
             id="task-post"
             value={contentId}
             onValueChange={setContentId}
             placeholder="Select a post"
+            searchPlaceholder="Search posts..."
             options={posts.map((p) => ({ value: p.id, label: `${p.title} · ${p.account_name}` }))}
           />
         </Field>
         <Field label="Assignee" htmlFor="task-assignee">
-          <ResponsiveSelect
-            id="task-assignee"
-            value={assignee}
-            onValueChange={setAssignee}
-            options={[{ value: NONE, label: "Unassigned" }, ...people.map((p) => ({ value: p.email, label: p.name }))]}
-          />
+          <PersonPicker id="task-assignee" value={assignee} onChange={setAssignee} />
         </Field>
         <Field label="Due date" htmlFor="task-due">
           <ResponsiveDatePicker id="task-due" value={dueDate} onChange={setDueDate} placeholder="No due date" />

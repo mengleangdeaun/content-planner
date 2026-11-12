@@ -1,17 +1,26 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
+import { format } from "date-fns";
+import { ArrowRight, CalendarDays, Flag, ListChecks, MessageSquare, Pencil, Plus, UserRound } from "lucide-react";
+import { PersonAvatar } from "@/components/shared/person-avatar";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { formatDisplayDate, formatShortDate } from "@/lib/date-utils";
+import { cn } from "@/lib/utils";
+import { ContentStatusBadge } from "./content-status-badge";
+import { EmptyState } from "@/components/shared/empty-state";
 import { CONTROL_HEIGHT } from "@/components/ui/form-layout";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/context/auth-context";
 import { useWorkspace } from "@/context/workspace-context";
-import { TaskRow } from "@/features/planning/components/task-row";
+import { TaskItem } from "@/features/planning/components/task-list";
 import { addComment, fetchActivity } from "@/features/planning/services/planning-service";
 import { canComment } from "@/lib/auth/permissions";
 import { ActivityEntry, ContentWithInsight } from "@/lib/types";
-import { taskProgress } from "@/lib/workflow";
+import { groupByDay, relativeDayLabel } from "@/lib/workflow";
 
 const errorText = (err: unknown, fallback: string) => (err instanceof Error ? err.message : fallback);
 
@@ -21,8 +30,10 @@ export function ContentTasksPanel({ contentId }: { contentId: string }) {
   const [title, setTitle] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
-  const postTasks = tasks.filter((task) => task.content_id === contentId);
-  const progress = taskProgress(postTasks);
+  // Newest first, so a task just added appears right under the box it was typed in.
+  const postTasks = tasks
+    .filter((task) => task.content_id === contentId)
+    .sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
 
   const add = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,32 +51,6 @@ export function ContentTasksPanel({ contentId }: { contentId: string }) {
 
   return (
     <div className="space-y-3">
-      {progress.total > 0 && (
-        <div className="space-y-1">
-          <div className="flex justify-between text-xs text-muted-foreground">
-            <span>{progress.done} of {progress.total} done</span>
-            <span>{progress.percent}%</span>
-          </div>
-          <div
-            role="progressbar"
-            aria-label="Task progress"
-            aria-valuenow={progress.percent}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            className="h-1.5 overflow-hidden rounded-full bg-muted"
-          >
-            <div className="h-full bg-primary" style={{ width: `${progress.percent}%` }} />
-          </div>
-        </div>
-      )}
-
-      <div className="space-y-2">
-        {postTasks.map((task) => (
-          <TaskRow key={task.id} task={task} />
-        ))}
-        {postTasks.length === 0 && <p className="py-4 text-center text-sm text-muted-foreground">No tasks yet.</p>}
-      </div>
-
       {can("tasks.manage") && (
         <form onSubmit={add} className="flex gap-2">
           <Input
@@ -77,10 +62,25 @@ export function ContentTasksPanel({ contentId }: { contentId: string }) {
             onChange={(e) => setTitle(e.target.value)}
             className={CONTROL_HEIGHT}
           />
-          <Button type="submit" variant="outline" disabled={isSaving || !title.trim()} className={CONTROL_HEIGHT}>
-            Add
+          <Button type="submit" disabled={isSaving || !title.trim()} className={cn("gap-1.5", CONTROL_HEIGHT)}>
+            <Plus /> Add
           </Button>
         </form>
+      )}
+
+      {postTasks.length === 0 ? (
+        <EmptyState
+          size="sm"
+          icon={<ListChecks />}
+          title="No tasks yet"
+          description={can("tasks.manage") ? "Add the steps this post needs above." : undefined}
+        />
+      ) : (
+        <ul className="space-y-2">
+          {postTasks.map((task) => (
+            <TaskItem key={task.id} task={task} />
+          ))}
+        </ul>
       )}
     </div>
   );
@@ -94,6 +94,16 @@ const FIELD_LABELS: Record<string, string> = {
   campaign_id: "campaign",
 };
 
+const FIELD_ICONS: Record<string, React.ReactNode> = {
+  assignee_email: <UserRound />,
+  reviewer_email: <UserRound />,
+  due_date: <CalendarDays />,
+  publish_date: <CalendarDays />,
+  campaign_id: <Flag />,
+};
+
+const VALUE_CHIP = "rounded bg-muted px-1.5 py-0.5 text-xs font-medium text-foreground";
+
 // Reopening a post shows its timeline instantly. It is fetched again only when the post has
 // changed or the copy is over a minute old, which also picks up teammates' comments.
 const ACTIVITY_FRESH_MS = 60 * 1000;
@@ -102,6 +112,7 @@ const activityCache = new Map<string, { version: string; fetchedAt: number; entr
 export function ContentActivityPanel({ item }: { item: ContentWithInsight }) {
   const { showToast, people, campaigns } = useWorkspace();
   const { currentUser } = useAuth();
+  const isMobile = useIsMobile();
   const [activity, setActivity] = useState<ActivityEntry[] | null>(
     () => activityCache.get(item.id)?.entries ?? null
   );
@@ -132,17 +143,59 @@ export function ContentActivityPanel({ item }: { item: ContentWithInsight }) {
   const showValue = (entry: ActivityEntry, value: string) => {
     if (!value) return "none";
     if (entry.body === "campaign_id") return campaigns.find((c) => c.id === value)?.name ?? value;
+    if (entry.body.endsWith("_date")) return formatShortDate(value);
     return entry.body.endsWith("_email") ? personName(value) : value;
   };
 
+  // What happened, with status pills and value chips so changes can be read at a glance.
   const describe = (entry: ActivityEntry) => {
-    if (entry.kind === "created") return `created this as ${entry.to_value}`;
-    if (entry.kind === "status") return `moved this from ${entry.from_value} to ${entry.to_value}`;
-    if (entry.kind === "field") {
-      return `changed ${FIELD_LABELS[entry.body] ?? entry.body} from ${showValue(entry, entry.from_value)} to ${showValue(entry, entry.to_value)}`;
+    const arrow = <ArrowRight aria-label="to" className="inline size-3 shrink-0" />;
+    if (entry.kind === "created") {
+      return (
+        <>
+          created this post as <ContentStatusBadge status={entry.to_value} />
+        </>
+      );
     }
-    return "commented";
+    if (entry.kind === "status") {
+      return (
+        <>
+          moved this <ContentStatusBadge status={entry.from_value} /> {arrow} <ContentStatusBadge status={entry.to_value} />
+        </>
+      );
+    }
+    return (
+      <>
+        changed {FIELD_LABELS[entry.body] ?? entry.body} <span className={VALUE_CHIP}>{showValue(entry, entry.from_value)}</span>{" "}
+        {arrow} <span className={VALUE_CHIP}>{showValue(entry, entry.to_value)}</span>
+      </>
+    );
   };
+
+  const marker = (entry: ActivityEntry) => {
+    if (entry.kind === "comment") {
+      return (
+        <PersonAvatar
+          name={personName(entry.actor_email)}
+          avatarUrl={people.find((p) => p.email === entry.actor_email)?.avatar_url}
+          className="relative"
+        />
+      );
+    }
+    const icon =
+      entry.kind === "created" ? <Plus /> : entry.kind === "status" ? <ArrowRight /> : (FIELD_ICONS[entry.body] ?? <Pencil />);
+    return (
+      <span aria-hidden className="relative flex size-7 shrink-0 items-center justify-center rounded-full border bg-popover text-muted-foreground [&_svg]:size-3.5">
+        {icon}
+      </span>
+    );
+  };
+
+  const today = format(new Date(), "yyyy-MM-dd");
+  const groups = groupByDay(activity ?? [], (entry) => {
+    const at = new Date(entry.at);
+    return Number.isNaN(at.getTime()) ? "" : format(at, "yyyy-MM-dd");
+  });
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -161,41 +214,95 @@ export function ContentActivityPanel({ item }: { item: ContentWithInsight }) {
   return (
     <div className="space-y-4">
       {canComment(currentUser) && (
-        <form onSubmit={submit} className="space-y-2">
-          <Textarea
-            aria-label="Add a comment"
-            rows={2}
-            placeholder="Add a comment..."
-            value={comment}
-            autoCapitalize="sentences"
-            onChange={(e) => setComment(e.target.value)}
-            className="resize-none"
-          />
-          <Button type="submit" variant="outline" disabled={isSaving || !comment.trim()} className={CONTROL_HEIGHT}>
-            {isSaving ? "Posting..." : "Post comment"}
-          </Button>
+        <form onSubmit={submit} className="flex gap-3">
+          <PersonAvatar name={currentUser.name} avatarUrl={currentUser.avatar_url} className="mt-1" />
+          <div className="min-w-0 flex-1 space-y-2">
+            <Textarea
+              aria-label="Add a comment"
+              rows={2}
+              placeholder="Add a comment..."
+              value={comment}
+              autoCapitalize="sentences"
+              onChange={(e) => setComment(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) e.currentTarget.form?.requestSubmit();
+              }}
+              className="resize-none"
+            />
+            <div className="flex items-center justify-end gap-3">
+              {!isMobile && <span className="text-xs text-muted-foreground">Ctrl + Enter to post</span>}
+              <Button type="submit" variant="outline" disabled={isSaving || !comment.trim()} className={CONTROL_HEIGHT}>
+                {isSaving ? "Posting..." : "Post comment"}
+              </Button>
+            </div>
+          </div>
         </form>
       )}
 
       {activity === null ? (
-        <p className="py-4 text-center text-sm text-muted-foreground">Loading activity...</p>
+        <div className="space-y-4" aria-label="Loading activity" role="status">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="flex gap-3">
+              <Skeleton className="size-7 shrink-0 rounded-full" />
+              <div className="flex-1 space-y-2">
+                <Skeleton className="h-3 w-2/3" />
+                <Skeleton className="h-3 w-1/3" />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : activity.length === 0 ? (
+        <EmptyState size="sm" icon={<MessageSquare />} title="No activity yet" />
       ) : (
-        <ol className="space-y-3">
-          {activity.map((entry) => (
-            <li key={entry.id} className="text-sm">
-              <span className="font-medium text-foreground">{personName(entry.actor_email)}</span>{" "}
-              <span className="text-muted-foreground">{describe(entry)}</span>
-              <time dateTime={entry.at} className="block text-xs text-muted-foreground">
-                {new Date(entry.at).toLocaleString()}
-              </time>
-              {entry.kind === "comment" && (
-                <p className="mt-1 rounded-md border bg-muted/40 p-2.5 break-words whitespace-pre-wrap text-foreground">
-                  {entry.body}
-                </p>
-              )}
+        <ol className="space-y-5">
+          {groups.map((group) => (
+            <li key={group.day} className="space-y-3">
+              <h4 className="text-xs font-semibold text-muted-foreground">
+                {group.day ? (relativeDayLabel(group.day, today) ?? formatDisplayDate(group.day)) : "Earlier"}
+              </h4>
+              {/* The rail runs behind the markers, which have a solid background to sit on top of it. */}
+              <ol className="relative space-y-4 before:absolute before:top-2 before:bottom-2 before:left-3.5 before:w-px before:bg-border">
+                {group.entries.map((entry) => {
+                  const at = new Date(entry.at);
+                  const valid = !Number.isNaN(at.getTime());
+                  const time = (
+                    <time dateTime={entry.at} title={valid ? at.toLocaleString() : undefined} className="shrink-0 text-xs text-muted-foreground">
+                      {valid ? at.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : ""}
+                    </time>
+                  );
+                  const name = <span className="font-medium text-foreground">{personName(entry.actor_email)}</span>;
+                  return (
+                    <li key={entry.id} className="relative flex gap-3 text-sm">
+                      {marker(entry)}
+                      {entry.kind === "comment" ? (
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <p className="flex items-baseline justify-between gap-2">
+                            {name}
+                            {time}
+                          </p>
+                          <p
+                            className={cn(
+                              "rounded-lg border p-3 break-words whitespace-pre-wrap text-foreground",
+                              entry.actor_email === currentUser.email ? "border-primary/30 bg-primary/5" : "bg-muted/40"
+                            )}
+                          >
+                            {entry.body}
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="flex min-w-0 flex-1 items-start justify-between gap-2 pt-1">
+                          <p className="min-w-0 leading-6 break-words text-muted-foreground">
+                            {name} {describe(entry)}
+                          </p>
+                          {time}
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ol>
             </li>
           ))}
-          {activity.length === 0 && <li className="py-4 text-center text-sm text-muted-foreground">No activity yet.</li>}
         </ol>
       )}
     </div>

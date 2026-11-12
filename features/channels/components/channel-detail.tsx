@@ -1,5 +1,6 @@
 "use client";
 
+import { useConfirm } from "@/components/shared/confirm-dialog";
 import React, { useState } from "react";
 import { format } from "date-fns";
 import { Archive, ExternalLink, Pencil } from "lucide-react";
@@ -40,8 +41,14 @@ export function ChannelDetail({ channel, onClose, onEdit }: ChannelDetailProps) 
   const trend = followerTrend(channelSnapshots.filter((s) => s.channel_id === channel.id));
   const owner = people.find((p) => p.email === channel.owner_email)?.name ?? channel.owner_email;
 
+  const confirm = useConfirm();
   const archive = async () => {
-    if (!confirm(`Archive ${channel.account_name}? Its posts stay in the plan. To bring it back, clear archived_at in the sheet.`)) return;
+    const ok = await confirm({
+      title: `Archive ${channel.account_name}?`,
+      description: "Its posts stay in the plan. To bring the channel back, clear archived_at in the sheet.",
+      confirmLabel: "Archive channel",
+    });
+    if (!ok) return;
     try {
       await onDeleteChannel(channel.id);
       onClose();

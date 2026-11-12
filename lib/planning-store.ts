@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { ActivityEntry, Campaign, ContentTask } from "./types";
 import { Fields, Row, SheetError } from "./sheets/core";
-import { appendRows, loadAll, patchRow } from "./sheets/table";
+import { appendRows, loadAll, patchRow, updateWhere } from "./sheets/table";
 import { isValidDate } from "./workflow";
 
 const newId = (prefix: string) => `${prefix}-${randomUUID().slice(0, 8)}`;
@@ -45,6 +45,51 @@ export async function saveCampaign(input: Partial<Campaign>, actorEmail: string)
   const record = { ...fields, id: newId("CMP"), created_at: now() };
   await appendRows("Campaigns", [record]);
   return record as unknown as Campaign;
+}
+
+export async function getCampaignRow(id: string): Promise<Row | undefined> {
+  return (await loadAll()).Campaigns.rows.find((row) => row.id === id);
+}
+
+/**
+ * Adds and removes posts in one go: one write sets the campaign on the added posts, one clears it
+ * on the removed ones, and one records each change in Activity. A post is in at most one campaign,
+ * so adding a post moves it from wherever it was.
+ */
+export async function linkCampaignPosts(
+  campaignId: string,
+  add: string[],
+  remove: string[],
+  actorEmail: string
+): Promise<{ added: number; removed: number; movedFrom: string[] }> {
+  const previous = new Map((await loadAll()).Content_Planner.rows.map((row) => [row.id, row.campaign_id ?? ""]));
+  const toAdd = new Set(add.filter((id) => previous.get(id) !== campaignId));
+  const toRemove = new Set(remove.filter((id) => !toAdd.has(id) && previous.get(id) === campaignId));
+
+  const added = toAdd.size
+    ? await updateWhere("Content_Planner", (row) => toAdd.has(row.id), { campaign_id: campaignId })
+    : 0;
+  // Only where the post still points here: someone may have moved it since the page loaded.
+  const removed = toRemove.size
+    ? await updateWhere("Content_Planner", (row) => toRemove.has(row.id) && row.campaign_id === campaignId, { campaign_id: "" })
+    : 0;
+
+  const events: ActivityEvent[] = [
+    ...[...toAdd].map((id) => ({ kind: "field" as const, entity_id: id, body: "campaign_id", from_value: previous.get(id) ?? "", to_value: campaignId })),
+    ...[...toRemove].map((id) => ({ kind: "field" as const, entity_id: id, body: "campaign_id", from_value: campaignId, to_value: "" })),
+  ];
+  // The links are saved, so a failed history entry must not report them as failed.
+  await logActivity(actorEmail, events).catch((error) => console.error("Could not record activity:", error));
+
+  const movedFrom = [...toAdd].map((id) => previous.get(id) ?? "").filter(Boolean);
+  return { added, removed, movedFrom };
+}
+
+/** Archiving a campaign takes its posts out of it; the posts themselves stay. */
+export async function unlinkAllPosts(campaignId: string, actorEmail: string): Promise<number> {
+  const linked = (await loadAll()).Content_Planner.rows.filter((row) => row.campaign_id === campaignId).map((row) => row.id);
+  if (linked.length === 0) return 0;
+  return (await linkCampaignPosts(campaignId, [], linked, actorEmail)).removed;
 }
 
 // ==========================================

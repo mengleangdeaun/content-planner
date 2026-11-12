@@ -2,17 +2,18 @@
 
 import React, { useState } from "react";
 import { format } from "date-fns";
-import { Plus, Search } from "lucide-react";
+import { Plus, Search, Share2 } from "lucide-react";
+import { NoData, NoResults } from "@/components/shared/empty-state";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { PageHeader } from "@/components/shared/page-header";
 import { CONTROL_HEIGHT } from "@/components/ui/form-layout";
 import { Input } from "@/components/ui/input";
 import { ResponsiveSelect } from "@/components/ui/responsive-select";
 import { useAuth } from "@/context/auth-context";
 import { useWorkspace } from "@/context/workspace-context";
-import { UpgradeSheetButton } from "@/features/integrations";
 import { resolveChannelId } from "@/lib/auth/permissions";
 import { channelHealth } from "@/lib/settings-rules";
 import { ChannelAccount } from "@/lib/types";
@@ -46,23 +47,18 @@ export function ChannelList() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">Channel Accounts</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Your publishing accounts, their weekly targets, and how each one is tracking.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
-          <UpgradeSheetButton />
-          {canManage && (
+      <PageHeader
+        title="Channel Accounts"
+        description="Your publishing accounts, their weekly targets, and how each one is tracking."
+        actions={
+          canManage && (
             <Button onClick={() => setEditing("new")} className="gap-2 font-medium">
               <Plus className="h-4 w-4" />
               <span>Add Channel</span>
             </Button>
-          )}
-        </div>
-      </div>
+          )
+        }
+      />
 
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_14rem]">
         <div className="relative">
@@ -90,8 +86,28 @@ export function ChannelList() {
       </div>
 
       {visible.length === 0 ? (
-        <Card className="p-10 text-center text-sm text-muted-foreground">
-          {channels.length === 0 ? "No channels yet." : "No channels match these filters."}
+        <Card className="p-0">
+          {channels.length === 0 ? (
+            <NoData
+              icon={<Share2 />}
+              title="No channels yet"
+              description="Add the social accounts you publish to, with a weekly target for each."
+              action={
+                canManage && (
+                  <Button onClick={() => setEditing("new")} className="gap-2">
+                    <Plus className="h-4 w-4" /> Add channel
+                  </Button>
+                )
+              }
+            />
+          ) : (
+            <NoResults
+              onClear={() => {
+                setSearch("");
+                setBrand(ALL);
+              }}
+            />
+          )}
         </Card>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

@@ -1,7 +1,6 @@
 "use client";
 
 import React from "react";
-import { CalendarDays } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -21,8 +20,12 @@ export function LoginCard({ error }: { error?: string }) {
     <main className="flex min-h-screen items-center justify-center bg-background p-4">
       <Card className="w-full max-w-sm p-6 shadow-sm">
         <CardHeader className="p-0 text-center">
-          <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <CalendarDays className="h-5 w-5" />
+          <div className="mx-auto mb-2">
+            <img
+              src="/assets/logo-landscape.svg"
+              alt="SCC Group"
+              className="h-12 w-auto object-contain"
+            />
           </div>
           <CardTitle className="text-lg font-semibold tracking-tight">Marketing Ops</CardTitle>
           <CardDescription className="text-sm">Sign in to Content Planner</CardDescription>

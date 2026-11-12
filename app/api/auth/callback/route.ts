@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
 
     const token = await createSessionToken(member.email);
     // A failed login timestamp must not block the sign-in.
-    await recordLogin(member, profile.name).catch((error) =>
+    await recordLogin(member, profile.name, profile.picture).catch((error) =>
       console.error("Could not record login:", error)
     );
 

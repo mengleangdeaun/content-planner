@@ -6,13 +6,15 @@ import React, {
   useState,
   useEffect,
   useCallback,
+  useMemo,
+  useRef,
   ReactNode,
 } from "react";
+import { taskProgress } from "@/lib/workflow";
 import { toast } from "@/components/ui/toast";
 import {
   ContentWithInsight,
   ContentStatus,
-  ContentInsight,
   ContentItem,
   ChannelAccount,
   ContentTypeConfig,
@@ -33,11 +35,14 @@ import {
 import {
   NewTaskInput,
   addTask,
+  linkCampaignPosts,
   saveCampaign,
   updateTask,
 } from "@/features/planning/services/planning-service";
 import { setUrlParam } from "@/lib/url-params";
-import { saveContentInsight } from "@/features/analytics/services/insights-service";
+import { InsightInput, saveContentInsight } from "@/features/analytics/services/insights-service";
+
+type TaskProgress = ReturnType<typeof taskProgress>;
 import {
   addChannelSnapshot,
   saveChannelAccount,
@@ -63,13 +68,14 @@ interface WorkspaceContextValue {
   contentTypes: ContentTypeConfig[];
   campaigns: Campaign[];
   tasks: ContentTask[];
+  /** Task progress per post ID, counted once per task change. */
+  taskProgressById: Map<string, TaskProgress>;
   channelSnapshots: ChannelSnapshot[];
   people: Person[];
   loading: boolean;
   isSyncing: boolean;
 
   // Notifications
-  toastMessage: string | null;
   showToast: (msg: string) => void;
 
   // Refresh & Sync
@@ -81,8 +87,10 @@ interface WorkspaceContextValue {
   onCreateContent: (item: NewContentInput) => Promise<void>;
   onUpdateContent: (fields: ContentUpdateInput) => Promise<void>;
   onReschedule: (item: ContentWithInsight, date: string) => Promise<void>;
-  onSaveInsight: (insight: ContentInsight) => Promise<void>;
-  onSaveCampaign: (campaign: Partial<Campaign>) => Promise<void>;
+  onAssign: (item: ContentWithInsight, email: string) => Promise<void>;
+  onSaveInsight: (insight: InsightInput) => Promise<void>;
+  onSaveCampaign: (campaign: Partial<Campaign>) => Promise<Campaign>;
+  onLinkPosts: (campaign: Campaign, add: string[], remove: string[]) => Promise<void>;
   onAddTask: (fields: NewTaskInput) => Promise<void>;
   onUpdateTask: (task: ContentTask, fields: Partial<ContentTask>) => Promise<void>;
 
@@ -130,7 +138,6 @@ export function WorkspaceProvider({
 
   const [loading, setLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Dialog & Drawer States
   const [postForm, setPostForm] = useState<PostFormState | null>(null);
@@ -156,12 +163,17 @@ export function WorkspaceProvider({
     setItems((prev) => prev.map((i) => (i.id === updated.id ? { ...i, ...updated } : i)));
   }, []);
 
+  // The toast library holds its own state, so a toast no longer re-renders every screen.
   const showToast = useCallback((msg: string) => {
     toast.success(msg);
-    setToastMessage(msg);
-    const timer = setTimeout(() => setToastMessage(null), 3000);
-    return () => clearTimeout(timer);
   }, []);
+
+  // Counted once per task change, instead of every row scanning every task on every render.
+  const taskProgressById = useMemo(() => {
+    const byPost = new Map<string, ContentTask[]>();
+    for (const task of tasks) byPost.set(task.content_id, [...(byPost.get(task.content_id) ?? []), task]);
+    return new Map([...byPost].map(([id, list]) => [id, taskProgress(list)]));
+  }, [tasks]);
 
   const refreshData = useCallback(
     async (fresh = false) => {
@@ -205,10 +217,19 @@ export function WorkspaceProvider({
 
   // Picks up teammates' changes without a Sync click. The server answers from its 30-second
   // cache, so this does not add Google Sheets reads. Quiet on failure: it retries next time.
+  // An identical answer is skipped, so nothing re-renders when nobody changed anything.
+  const lastQuietPayload = useRef("");
   useEffect(() => {
     const refreshQuietly = () => {
       if (document.visibilityState !== "visible") return;
-      fetchContentData(false).then(applyWorkspace).catch(() => {});
+      fetch("/api/content")
+        .then((res) => (res.ok ? res.text() : Promise.reject()))
+        .then((text) => {
+          if (text === lastQuietPayload.current) return;
+          lastQuietPayload.current = text;
+          applyWorkspace(JSON.parse(text));
+        })
+        .catch(() => {});
     };
     const timer = setInterval(refreshQuietly, 60 * 1000);
     document.addEventListener("visibilitychange", refreshQuietly);
@@ -300,16 +321,78 @@ export function WorkspaceProvider({
     [applyItem, refreshData, showToast]
   );
 
+  // Sends only the assignee, so it cannot overwrite someone else's edit to other fields.
+  const onAssign = useCallback(
+    async (item: ContentWithInsight, email: string) => {
+      if ((item.assignee_email ?? "") === email) return;
+      setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, assignee_email: email } : i)));
+      try {
+        applyItem(await updateContentItem({ id: item.id, assignee_email: email }));
+        const name = people.find((p) => p.email === email)?.name ?? email;
+        showToast(email ? `Assigned "${item.title}" to ${name}` : `Unassigned "${item.title}"`);
+      } catch (err: unknown) {
+        showToast(err instanceof Error ? err.message : "Failed to assign");
+        refreshData();
+      }
+    },
+    [applyItem, people, refreshData, showToast]
+  );
+
   const onSaveCampaign = useCallback(
     async (campaign: Partial<Campaign>) => {
-      const saved = await saveCampaign(campaign);
+      const { campaign: saved, unlinked } = await saveCampaign(campaign);
+      const archived = saved.status === "Archived";
       setCampaigns((prev) => {
         const others = prev.filter((c) => c.id !== saved.id);
-        return saved.status === "Archived" ? others : [...others, saved];
+        return archived ? others : [...others, saved];
       });
-      showToast(`Campaign "${saved.name}" saved`);
+      if (archived) {
+        setItems((prev) => prev.map((i) => (i.campaign_id === saved.id ? { ...i, campaign_id: "" } : i)));
+        showToast(
+          unlinked > 0
+            ? `Archived "${saved.name}" and took ${unlinked} post${unlinked === 1 ? "" : "s"} out of it`
+            : `Archived "${saved.name}"`
+        );
+      } else {
+        showToast(`Campaign "${saved.name}" saved`);
+      }
+      return saved;
     },
     [showToast]
+  );
+
+  const onLinkPosts = useCallback(
+    async (campaign: Campaign, add: string[], remove: string[]) => {
+      if (add.length + remove.length === 0) return;
+      const adding = new Set(add);
+      const removing = new Set(remove);
+      // Shown straight away; the server's answer confirms it.
+      setItems((prev) =>
+        prev.map((i) => {
+          if (adding.has(i.id)) return { ...i, campaign_id: campaign.id };
+          if (removing.has(i.id) && i.campaign_id === campaign.id) return { ...i, campaign_id: "" };
+          return i;
+        })
+      );
+      try {
+        const { added, removed, movedFrom } = await linkCampaignPosts(campaign.id, add, remove);
+        const posts = (n: number) => `${n} post${n === 1 ? "" : "s"}`;
+        const parts = [];
+        if (added > 0) {
+          const from = [...new Set(movedFrom)];
+          parts.push(
+            `Added ${posts(added)} to ${campaign.name}` +
+              (movedFrom.length ? ` (${movedFrom.length} moved from ${from.join(", ")})` : "")
+          );
+        }
+        if (removed > 0) parts.push(`Removed ${posts(removed)} from ${campaign.name}`);
+        if (parts.length) showToast(parts.join(". "));
+      } catch (err: unknown) {
+        showToast(err instanceof Error ? err.message : "Failed to update campaign posts");
+        refreshData();
+      }
+    },
+    [refreshData, showToast]
   );
 
   const onAddTask = useCallback(async (fields: NewTaskInput) => {
@@ -334,12 +417,19 @@ export function WorkspaceProvider({
   );
 
   const onSaveInsight = useCallback(
-    async (insight: ContentInsight) => {
-      await saveContentInsight(insight);
+    async (input: InsightInput) => {
+      const saved = await saveContentInsight(input);
+      const day = (value?: string) => (value ?? "").slice(0, 10);
+      let title = input.id;
+      // A backdated count is kept in the history but does not replace newer figures.
       setItems((prev) =>
-        prev.map((i) => (i.id === insight.id ? { ...i, insight } : i))
+        prev.map((i) => {
+          if (i.id !== saved.id) return i;
+          title = i.title;
+          return !i.insight || day(saved.captured_at) >= day(i.insight.captured_at) ? { ...i, insight: saved } : i;
+        })
       );
-      showToast(`Metrics logged for ${insight.id}`);
+      showToast(`Metrics logged for "${title}"`);
     },
     [showToast]
   );
@@ -439,17 +529,18 @@ export function WorkspaceProvider({
     setMetricsModalItem(null);
   }, []);
 
-  const value: WorkspaceContextValue = {
+  // A new object only when something in it changes, so screens re-render only when their data does.
+  const value = useMemo<WorkspaceContextValue>(() => ({
     items,
     channels,
     contentTypes,
     campaigns,
     tasks,
+    taskProgressById,
     channelSnapshots,
     people,
     loading,
     isSyncing,
-    toastMessage,
     showToast,
     refreshData,
     syncNow,
@@ -457,8 +548,10 @@ export function WorkspaceProvider({
     onCreateContent,
     onUpdateContent,
     onReschedule,
+    onAssign,
     onSaveInsight,
     onSaveCampaign,
+    onLinkPosts,
     onAddTask,
     onUpdateTask,
     onSaveChannel,
@@ -479,7 +572,14 @@ export function WorkspaceProvider({
     metricsModalItem,
     openMetricsModal,
     closeMetricsModal,
-  };
+  }), [
+    items, channels, contentTypes, campaigns, tasks, taskProgressById, channelSnapshots, people, loading, isSyncing,
+    showToast, refreshData, syncNow, onStatusChange, onCreateContent, onUpdateContent, onReschedule, onAssign,
+    onSaveInsight, onSaveCampaign, onLinkPosts, onAddTask, onUpdateTask, onSaveChannel, onDeleteChannel, onAddSnapshot,
+    onAddContentType, onUpdateContentType, onDeleteContentType, postForm, closePostForm, isGuideModalOpen,
+    detailDrawerItem, detailDrawerTab, openDetailDrawer, closeDetailDrawer, metricsModalItem, openMetricsModal,
+    closeMetricsModal,
+  ]);
 
   return (
     <WorkspaceContext.Provider value={value}>

@@ -122,20 +122,27 @@ export function followerTrend<S extends { captured_at: string; followers: string
   return { latest, change: latest !== null && previous !== null ? latest - previous : null, history: sorted };
 }
 
+/** Each type's share of the given posts, next to its target share. */
+export function typeShares(
+  posts: { content_type: string }[],
+  types: { name: string; target_share_pct?: number }[]
+) {
+  return types.map((type) => {
+    const count = posts.filter((p) => p.content_type === type.name).length;
+    return {
+      name: type.name,
+      count,
+      actualPct: posts.length ? Math.round((count / posts.length) * 100) : 0,
+      targetPct: type.target_share_pct || 0,
+    };
+  });
+}
+
 // Share of this month's posts per type, next to each type's target.
 export function typeMix(
   posts: { content_type: string; publish_date: string; status: string }[],
   types: { name: string; target_share_pct?: number }[],
   month: string // "YYYY-MM"
 ) {
-  const inMonth = posts.filter((p) => p.status !== "Archived" && p.publish_date.startsWith(month));
-  return types.map((type) => {
-    const count = inMonth.filter((p) => p.content_type === type.name).length;
-    return {
-      name: type.name,
-      count,
-      actualPct: inMonth.length ? Math.round((count / inMonth.length) * 100) : 0,
-      targetPct: type.target_share_pct || 0,
-    };
-  });
+  return typeShares(posts.filter((p) => p.status !== "Archived" && p.publish_date.startsWith(month)), types);
 }

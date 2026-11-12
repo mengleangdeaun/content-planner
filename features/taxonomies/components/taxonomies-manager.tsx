@@ -2,9 +2,15 @@
 
 import React, { useState } from "react";
 import { format } from "date-fns";
-import { Archive, Pencil, Plus } from "lucide-react";
+import { Archive, Pencil, PieChart, Plus, Tags } from "lucide-react";
+import { ActionButton } from "@/components/shared/action-button";
+import { CardList } from "@/components/shared/card-list";
+import { useConfirm } from "@/components/shared/confirm-dialog";
+import { DataColumn, DataTable } from "@/components/shared/data-table";
+import { EmptyState, NoData } from "@/components/shared/empty-state";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { PageHeader } from "@/components/shared/page-header";
 import { CONTROL_HEIGHT, Field, FieldRow, FormActions, FormError, FormSection } from "@/components/ui/form-layout";
 import { Input } from "@/components/ui/input";
 import { ResponsiveModal } from "@/components/ui/responsive-modal";
@@ -12,118 +18,233 @@ import { ResponsiveSelect } from "@/components/ui/responsive-select";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/context/auth-context";
 import { useWorkspace } from "@/context/workspace-context";
+import { useIsDesktop } from "@/hooks/use-media-query";
 import { TYPE_COLORS, TYPE_FORMATS, typeMix } from "@/lib/settings-rules";
 import { ContentTypeConfig } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { UpgradeSheetButton } from "@/features/integrations";
 import { TYPE_COLOR_CLASSES, TypeBadge } from "./type-badge";
+
+// Within 5 points of the target counts as on target, as on the Dashboard.
+const TOLERANCE = 5;
+
+interface TypeRow {
+  type: ContentTypeConfig;
+  /** Live posts of this type, any date. */
+  posts: number;
+  monthCount: number;
+  monthPct: number;
+  offTarget: boolean;
+}
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+const formatLabel = (type: ContentTypeConfig) =>
+  TYPE_FORMATS.find((f) => f.value === (type.default_format ?? ""))?.label ?? "No default";
 
 export function TaxonomiesManager() {
   const { contentTypes, items, onDeleteContentType, showToast } = useWorkspace();
   const canManage = useAuth().can("types.manage");
+  const confirm = useConfirm();
+  const isDesktop = useIsDesktop();
   const [editing, setEditing] = useState<ContentTypeConfig | "new" | null>(null);
 
   const month = format(new Date(), "yyyy-MM");
+  const monthLabel = format(new Date(), "MMMM yyyy");
   const mix = typeMix(items, contentTypes, month);
   const targetTotal = contentTypes.reduce((sum, t) => sum + (t.target_share_pct || 0), 0);
-  const usage = (name: string) => items.filter((i) => i.content_type === name && i.status !== "Archived").length;
+  const rows: TypeRow[] = contentTypes.map((type, i) => ({
+    type,
+    posts: items.filter((item) => item.content_type === type.name && item.status !== "Archived").length,
+    monthCount: mix[i].count,
+    monthPct: mix[i].actualPct,
+    offTarget: mix[i].targetPct > 0 && Math.abs(mix[i].actualPct - mix[i].targetPct) > TOLERANCE,
+  }));
 
-  const archive = async (type: ContentTypeConfig) => {
-    const used = usage(type.name);
-    const note = used ? ` Its ${used} post${used === 1 ? "" : "s"} keep the type, but it can't be picked for new posts.` : "";
-    if (!confirm(`Archive "${type.name}"?${note}`)) return;
+  const archive = async ({ type, posts }: TypeRow) => {
+    const ok = await confirm({
+      title: `Archive "${type.name}"?`,
+      description: posts
+        ? `Its ${plural(posts, "post")} keep the type, but it can't be picked for new posts.`
+        : "No posts use it. It will no longer be offered for new posts.",
+      confirmLabel: "Archive type",
+    });
+    if (!ok) return;
     try {
       await onDeleteContentType(type.id);
+      showToast(`"${type.name}" archived`);
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : "Failed to archive content type");
     }
   };
 
+  const actions = (row: TypeRow, showLabel?: boolean) =>
+    canManage && (
+      <div className={cn("flex items-center gap-1", showLabel ? "gap-2 *:flex-1" : "justify-end")}>
+        <ActionButton icon={<Pencil />} label="Edit" onClick={() => setEditing(row.type)} showLabel={showLabel} variant={showLabel ? "outline" : "ghost"} />
+        <ActionButton icon={<Archive />} label="Archive" onClick={() => archive(row)} showLabel={showLabel} variant={showLabel ? "outline" : "ghost"} />
+      </div>
+    );
+
+  const thisMonth = (row: TypeRow) => (
+    <span className={cn("tabular-nums", row.offTarget ? "text-amber-700 dark:text-amber-400" : "text-foreground")}>
+      {plural(row.monthCount, "post")} · {row.monthPct}%
+    </span>
+  );
+
+  const columns: DataColumn<TypeRow>[] = [
+    {
+      key: "type",
+      header: "Type",
+      cell: (row) => (
+        <div className="min-w-0 space-y-1 py-0.5">
+          <TypeBadge name={row.type.name} />
+          <p className="line-clamp-2 text-xs whitespace-normal text-muted-foreground">{row.type.description || "No description."}</p>
+        </div>
+      ),
+    },
+    {
+      key: "target",
+      header: "Target share",
+      className: "w-28",
+      cell: (row) => (row.type.target_share_pct ? `${row.type.target_share_pct}%` : <span className="text-muted-foreground">None</span>),
+    },
+    { key: "month", header: "This month", className: "w-36", cell: thisMonth },
+    { key: "format", header: "Default format", className: "w-36", cell: (row) => formatLabel(row.type) },
+    { key: "posts", header: "Posts", className: "w-20", align: "right", cell: (row) => <span className="tabular-nums">{row.posts}</span> },
+    ...(canManage
+      ? [
+          {
+            key: "actions",
+            header: <span className="sr-only">Actions</span>,
+            className: "w-24",
+            align: "right" as const,
+            interactive: true,
+            cell: (row: TypeRow) => actions(row),
+          },
+        ]
+      : []),
+  ];
+
+  const empty = (
+    <NoData
+      icon={<Tags />}
+      title="No content types yet"
+      description="Types like Educational or Promotional organize your posts and drive the content mix."
+      action={
+        canManage && (
+          <Button onClick={() => setEditing("new")} className="gap-2">
+            <Plus className="h-4 w-4" /> Add content type
+          </Button>
+        )
+      }
+    />
+  );
+
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">Content Types</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            The kinds of content you plan, with a color, a target share of each month, and a starting brief.
-          </p>
-        </div>
-        <div className="flex items-center gap-2 self-start sm:self-auto">
-          <UpgradeSheetButton />
-          {canManage && (
+      <PageHeader
+        title="Content Types"
+        description="The kinds of content you plan, with a color, a target share of each month, and a starting brief."
+        actions={
+          canManage && (
             <Button onClick={() => setEditing("new")} className="gap-2 font-medium">
               <Plus className="h-4 w-4" />
               <span>Add Content Type</span>
             </Button>
-          )}
-        </div>
-      </div>
+          )
+        }
+      />
 
-      <Card className="space-y-3 p-4">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-sm font-semibold text-foreground">Content mix, {format(new Date(), "MMMM yyyy")}</h2>
+      <Card className="gap-4 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <h2 className="text-sm font-semibold text-foreground">Content mix · {monthLabel}</h2>
+            <p className="text-xs text-muted-foreground">Each type&apos;s share of this month&apos;s posts. The tick marks its target.</p>
+          </div>
           {targetTotal !== 100 && targetTotal > 0 && (
-            <span className="text-xs text-amber-700 dark:text-amber-400">Targets add up to {targetTotal}%, not 100%.</span>
+            <span className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+              Targets add up to {targetTotal}%, not 100%
+            </span>
           )}
         </div>
-        <ul className="space-y-2.5">
-          {mix.map((row) => (
-            <li key={row.name} className="space-y-1">
-              <div className="flex items-center justify-between gap-2 text-xs">
-                <TypeBadge name={row.name} />
-                <span className="text-muted-foreground">
-                  {row.actualPct}% of posts{row.targetPct > 0 && ` · target ${row.targetPct}%`}
-                </span>
-              </div>
-              <div className="relative h-1.5 rounded-full bg-muted">
-                <div className="h-full rounded-full bg-primary" style={{ width: `${row.actualPct}%` }} />
-                {row.targetPct > 0 && (
-                  <span
-                    aria-hidden
-                    className="absolute -top-0.5 h-2.5 w-0.5 rounded bg-foreground"
-                    style={{ left: `calc(${row.targetPct}% - 1px)` }}
+        {rows.length === 0 ? (
+          <EmptyState size="sm" icon={<PieChart />} title="No mix to show yet" description="Add content types to compare this month's mix with your targets." />
+        ) : (
+          <ul className="grid gap-x-8 gap-y-3.5 md:grid-cols-2">
+            {rows.map((row) => (
+              <li key={row.type.id} className="space-y-1.5">
+                <div className="flex items-center justify-between gap-2 text-xs">
+                  <TypeBadge name={row.type.name} />
+                  <span className="text-muted-foreground tabular-nums">
+                    <span className="font-medium text-foreground">{row.monthPct}%</span>
+                    {row.type.target_share_pct ? ` of ${row.type.target_share_pct}% target` : " · no target"}
+                  </span>
+                </div>
+                <div
+                  role="meter"
+                  aria-label={`${row.type.name}: ${row.monthPct}%${row.type.target_share_pct ? `, target ${row.type.target_share_pct}%` : ""}`}
+                  aria-valuenow={row.monthPct}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  className="relative h-1.5 rounded-full bg-muted"
+                >
+                  <div
+                    className={cn("h-full rounded-full", row.offTarget ? "bg-amber-500" : "bg-primary")}
+                    style={{ width: `${Math.min(100, row.monthPct)}%` }}
                   />
-                )}
-              </div>
-            </li>
-          ))}
-          {mix.length === 0 && <li className="text-sm text-muted-foreground">No content types yet.</li>}
-        </ul>
+                  {!!row.type.target_share_pct && (
+                    <span
+                      aria-hidden
+                      className="absolute -top-1 h-3.5 w-0.5 -translate-x-1/2 rounded-full bg-foreground"
+                      style={{ left: `${Math.min(100, row.type.target_share_pct)}%` }}
+                    />
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </Card>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {contentTypes.map((type) => (
-          <Card key={type.id} className="flex flex-col gap-3 p-4">
-            <div className="flex items-start justify-between gap-2">
-              <TypeBadge name={type.name} className="text-sm" />
-              <span className="text-xs text-muted-foreground">{usage(type.name)} posts</span>
-            </div>
-            <p className="line-clamp-3 flex-1 text-sm text-muted-foreground">{type.description || "No description."}</p>
-            <dl className="grid grid-cols-2 gap-2 text-xs">
-              <div>
-                <dt className="text-muted-foreground">Target share</dt>
-                <dd className="font-medium text-foreground">{type.target_share_pct ? `${type.target_share_pct}%` : "None"}</dd>
+      {/* Table from 1280px up, cards below. Only one is rendered, chosen with a media query. */}
+      {isDesktop ? (
+        <DataTable
+          columns={columns}
+          rows={rows}
+          getRowKey={(row) => row.type.id}
+          onRowClick={canManage ? (row) => setEditing(row.type) : undefined}
+          empty={empty}
+        />
+      ) : (
+        <CardList
+          rows={rows}
+          getRowKey={(row) => row.type.id}
+          empty={empty}
+          renderCard={(row) => (
+            <Card className="flex h-full flex-col gap-3 p-4">
+              <div className="flex items-start justify-between gap-2">
+                <TypeBadge name={row.type.name} className="text-sm" />
+                <span className="shrink-0 text-xs text-muted-foreground">{plural(row.posts, "post")}</span>
               </div>
-              <div>
-                <dt className="text-muted-foreground">Default format</dt>
-                <dd className="font-medium text-foreground">
-                  {TYPE_FORMATS.find((f) => f.value === (type.default_format ?? ""))?.label ?? "No default"}
-                </dd>
-              </div>
-            </dl>
-            {canManage && (
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => setEditing(type)} className="h-10 flex-1 gap-1.5 md:h-8">
-                  <Pencil /> Edit
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => archive(type)} className="h-10 flex-1 gap-1.5 md:h-8">
-                  <Archive /> Archive
-                </Button>
-              </div>
-            )}
-          </Card>
-        ))}
-      </div>
+              <p className="line-clamp-3 flex-1 text-sm text-muted-foreground">{row.type.description || "No description."}</p>
+              <dl className="grid grid-cols-3 gap-2 text-xs">
+                <div>
+                  <dt className="text-muted-foreground">Target</dt>
+                  <dd className="font-medium text-foreground">{row.type.target_share_pct ? `${row.type.target_share_pct}%` : "None"}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">This month</dt>
+                  <dd className="font-medium">{thisMonth(row)}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">Format</dt>
+                  <dd className="font-medium text-foreground">{formatLabel(row.type)}</dd>
+                </div>
+              </dl>
+              {actions(row, true)}
+            </Card>
+          )}
+        />
+      )}
 
       {editing && <TypeDialog type={editing === "new" ? null : editing} onClose={() => setEditing(null)} />}
     </div>
@@ -131,7 +252,7 @@ export function TaxonomiesManager() {
 }
 
 function TypeDialog({ type, onClose }: { type: ContentTypeConfig | null; onClose: () => void }) {
-  const { items, onAddContentType, onUpdateContentType } = useWorkspace();
+  const { items, contentTypes, onAddContentType, onUpdateContentType } = useWorkspace();
   const [name, setName] = useState(type?.name ?? "");
   const [description, setDescription] = useState(type?.description ?? "");
   const [color, setColor] = useState(type?.badge_color ?? "");
@@ -142,6 +263,7 @@ function TypeDialog({ type, onClose }: { type: ContentTypeConfig | null; onClose
   const [error, setError] = useState<string | null>(null);
 
   const renaming = type && name.trim() && name.trim() !== type.name;
+  const othersTotal = contentTypes.filter((t) => t.id !== type?.id).reduce((sum, t) => sum + (t.target_share_pct || 0), 0);
   const affected = type ? items.filter((i) => i.content_type === type.name).length : 0;
 
   const submit = async (e: React.FormEvent) => {
@@ -171,6 +293,7 @@ function TypeDialog({ type, onClose }: { type: ContentTypeConfig | null; onClose
     <ResponsiveModal
       open
       onClose={onClose}
+      size="lg"
       title={type ? "Edit content type" : "New content type"}
       description="Types appear in the post form and the content mix."
       footer={
@@ -236,7 +359,7 @@ function TypeDialog({ type, onClose }: { type: ContentTypeConfig | null; onClose
 
         <FormSection title="Planning defaults">
           <FieldRow>
-            <Field label="Target share" htmlFor="type-target" hint="% of monthly posts">
+            <Field label="Target share" htmlFor="type-target" hint={othersTotal > 0 ? `${Math.max(0, 100 - othersTotal)}% left after other types` : "% of monthly posts"}>
               <Input
                 id="type-target"
                 type="number"

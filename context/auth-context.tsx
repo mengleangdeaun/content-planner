@@ -7,6 +7,8 @@ import { Member, Permission } from "@/lib/auth/permissions";
 interface AuthContextValue {
   currentUser: Member;
   can: (permission: Permission) => boolean;
+  /** Changes the signed-in person's own name. */
+  updateProfile: (name: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -32,6 +34,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       );
   }, []);
 
+  const updateProfile = useCallback(async (name: string) => {
+    const res = await fetch("/api/auth/me", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(json.error || "Could not update your name.");
+    setCurrentUser(json.member);
+  }, []);
+
   const signOut = useCallback(async () => {
     await fetch("/api/auth/logout", { method: "POST" });
     window.location.assign("/login");
@@ -52,6 +65,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value: AuthContextValue = {
     currentUser,
     can: (permission) => currentUser.permissions.includes(permission),
+    updateProfile,
     signOut,
   };
 

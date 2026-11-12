@@ -38,4 +38,5 @@ export interface ActivityEntry {
 export interface Person {
   email: string;
   name: string;
+  avatar_url?: string;
 }

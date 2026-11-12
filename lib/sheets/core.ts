@@ -73,11 +73,13 @@ export function pickFields(input: object, allowed: readonly string[]): Fields {
 }
 
 // One row per snapshot: keep the newest per id. Legacy rows have no captured_at, so they sort oldest.
+// Compared by day: older rows hold full timestamps, newer ones a plain date. On the same day the later row wins.
 export function latestById(rows: Row[]): Map<string, Row> {
   const latest = new Map<string, Row>();
+  const day = (row: Row) => (row.captured_at ?? "").slice(0, 10);
   for (const row of rows) {
     const current = latest.get(row.id);
-    if (!current || (row.captured_at ?? "") >= (current.captured_at ?? "")) {
+    if (!current || day(row) >= day(current)) {
       latest.set(row.id, row);
     }
   }

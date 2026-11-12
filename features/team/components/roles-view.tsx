@@ -1,8 +1,10 @@
 "use client";
 
+import { useConfirm } from "@/components/shared/confirm-dialog";
 import React, { Fragment, useCallback, useEffect, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/shared/page-header";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
@@ -25,6 +27,7 @@ const errorText = (err: unknown, fallback: string) => (err instanceof Error ? er
 export function RolesView() {
   const { showToast } = useWorkspace();
   const { currentUser, can } = useAuth();
+  const confirm = useConfirm();
   const [roles, setRoles] = useState<Role[] | null>(null);
   const [drafts, setDrafts] = useState<Record<string, Permission[]>>({});
   const [error, setError] = useState<string | null>(null);
@@ -75,7 +78,12 @@ export function RolesView() {
   };
 
   const handleDelete = async (role: Role) => {
-    if (!confirm(`Delete the "${role.name}" role?`)) return;
+    const ok = await confirm({
+      title: `Delete the "${role.name}" role?`,
+      description: "It disappears from the role list. A role that is still assigned to someone can't be deleted.",
+      confirmLabel: "Delete role",
+    });
+    if (!ok) return;
     try {
       await deleteRole(role.id);
       showToast("Role deleted");
@@ -89,23 +97,21 @@ export function RolesView() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">Roles & Permissions</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Choose what each role can do. Changes apply within about 30 seconds.
-          </p>
-        </div>
-        <div className="flex items-center gap-2 self-start sm:self-auto">
-          <Button variant="outline" onClick={() => setAdding(true)} className="gap-2 font-medium">
-            <Plus className="h-4 w-4" />
-            <span>New Role</span>
-          </Button>
-          <Button onClick={handleSave} disabled={!hasChanges || saving} className="font-medium">
-            {saving ? "Saving..." : "Save Changes"}
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Roles & Permissions"
+        description="Choose what each role can do. Changes apply within about 30 seconds."
+        actions={
+          <>
+            <Button variant="outline" onClick={() => setAdding(true)} className="gap-2 font-medium">
+              <Plus className="h-4 w-4" />
+              <span>New Role</span>
+            </Button>
+            <Button onClick={handleSave} disabled={!hasChanges || saving} className="font-medium">
+              {saving ? "Saving..." : "Save Changes"}
+            </Button>
+          </>
+        }
+      />
 
       {error && (
         <div role="alert" className="rounded-md border border-destructive/20 bg-destructive/10 p-3 text-sm font-medium text-destructive">

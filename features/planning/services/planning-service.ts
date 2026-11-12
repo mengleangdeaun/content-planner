@@ -11,13 +11,18 @@ async function request<T>(url: string, method = "GET", body?: unknown): Promise<
   return json;
 }
 
-export async function saveCampaign(campaign: Partial<Campaign>): Promise<Campaign> {
-  const { campaign: saved } = await request<{ campaign: Campaign }>(
-    "/api/campaigns",
-    campaign.id ? "PUT" : "POST",
-    campaign
-  );
-  return saved;
+export async function saveCampaign(
+  campaign: Partial<Campaign>
+): Promise<{ campaign: Campaign; unlinked: number }> {
+  return request<{ campaign: Campaign; unlinked: number }>("/api/campaigns", campaign.id ? "PUT" : "POST", campaign);
+}
+
+export async function linkCampaignPosts(
+  campaignId: string,
+  add: string[],
+  remove: string[]
+): Promise<{ added: number; removed: number; movedFrom: string[] }> {
+  return request("/api/campaigns/posts", "POST", { campaign_id: campaignId, add, remove });
 }
 
 export type NewTaskInput = Pick<ContentTask, "content_id" | "title"> &

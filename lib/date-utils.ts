@@ -59,6 +59,16 @@ export type DateFilterPreset =
   | "past-30-days"
   | "custom";
 
+export const DATE_PRESET_OPTIONS: { value: DateFilterPreset; label: string }[] = [
+  { value: "all", label: "All dates" },
+  { value: "today", label: "Today" },
+  { value: "this-week", label: "This week" },
+  { value: "this-month", label: "This month" },
+  { value: "next-7-days", label: "Next 7 days" },
+  { value: "past-30-days", label: "Past 30 days" },
+  { value: "custom", label: "Custom range" },
+];
+
 export function isDateInFilter(
   dateStr?: string,
   preset: DateFilterPreset = "all",

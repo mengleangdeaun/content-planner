@@ -78,7 +78,7 @@ export const SHEET_SCHEMA = {
     "updated_at",
   ],
   Activity: ["id", "at", "actor_email", "kind", "entity", "entity_id", "from_value", "to_value", "body"],
-  Team_Members: ["id", "email", "name", "role_id", "channel_ids", "status", "invited_by", "last_login_at"],
+  Team_Members: ["id", "email", "name", "role_id", "channel_ids", "status", "invited_by", "last_login_at", "avatar_url"],
   Roles: ["id", "name", "permissions", "is_system", "archived_at"],
   Channel_Snapshots: ["id", "channel_id", "captured_at", "followers", "entered_by"],
 } as const;
