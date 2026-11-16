@@ -7,14 +7,10 @@ import { ThemeProvider } from "@/components/theme-provider"
 import { Toaster } from "@/components/ui/toast"
 import { cn } from "@/lib/utils";
 
-// Inter with looped Khmer glyphs, so English and Khmer text share one typeface.
+// Google Sans variable (wght 400–700); includes Khmer glyphs, so English and Khmer share one typeface.
 const fontSans = localFont({
-  src: [
-    { path: "../public/assets/fonts/InterKhmerLooped-Regular.woff2", weight: "400", style: "normal" },
-    { path: "../public/assets/fonts/InterKhmerLooped-Medium.woff2", weight: "500", style: "normal" },
-    { path: "../public/assets/fonts/InterKhmerLooped-SemiBold.woff2", weight: "600", style: "normal" },
-    { path: "../public/assets/fonts/InterKhmerLooped-Bold.woff2", weight: "700", style: "normal" },
-  ],
+  src: "../public/assets/fonts/GoogleSans-Variable.woff2",
+  weight: "400 700",
   variable: "--font-sans",
   display: "swap",
 })
